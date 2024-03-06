@@ -1,0 +1,5 @@
+.venv/
+.secrets
+output.png
+cpu
+gpu
