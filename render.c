@@ -10,24 +10,85 @@
 #include "util.c"
 
 typedef enum {
-  SPHERE
-} Primitive;
+  MATTE, METAL, DIELECTRIC, LIGHT
+} MaterialType;
 
 typedef struct {
-  int id; // Used to check equality
-  Primitive type;
+  MaterialType mtype;
   v3 color;
+  /* For diffuse */
+  float albedo; // Ratio of light that is diffusely reflected
+  /* For metal */
+  float reflectivity; // From 0 to 1, how reflective
+  float fuzziness; // How fuzzy do the reflections look
+  /* For dielectric */
+  float eta; // Refractive index
+} Material;
 
+Material matte(v3 color, float albedo) {
+  return (Material) {.mtype = MATTE, .color = color, .albedo = albedo};
+}
+
+Material metal(v3 color, float reflectivity, float fuzziness) {
+  return (Material) {.mtype = METAL, .color = color, .reflectivity = reflectivity, .fuzziness = fuzziness};
+}
+
+Material dielectric(v3 color, float eta) {
+  return (Material) {.mtype = DIELECTRIC, .color = color, .eta = eta};
+}
+
+Material light(v3 color) {
+  return (Material) {.mtype = LIGHT, .color = color};
+}
+
+void interact_with_material(Material mat, v3 normal, v3 in_dir, v3 *out_dir, float *attenuation, unsigned int *X) {
+  if (mat.mtype == MATTE) {
+    *out_dir = add(normal, randsphere(X));
+    *attenuation = mat.albedo;
+  }
+  else if (mat.mtype == METAL) {
+    *out_dir = add(reflect(neg(in_dir), normal),
+		   scl(randsphere(X), mat.fuzziness));
+    *attenuation = 1.0 - mat.reflectivity;
+  }
+  else if (mat.mtype == DIELECTRIC) {
+    bool inside = dot(in_dir, normal) > 0;
+    if (inside)
+      normal = neg(normal);
+
+    float eta_ratio = inside ? mat.eta : 1.0/mat.eta;
+    // If Snell's equation is solvable, then refract.
+    // Else reflect (total internal reflection)
+    if (eta_ratio * sinangle(in_dir, normal) <= 1)
+      *out_dir = refract(in_dir, normal, eta_ratio);
+    else
+      *out_dir = reflect(in_dir, normal);
+    *attenuation = 0;
+  }
+  else if (mat.mtype == LIGHT) {
+    *attenuation = 1;
+  }
+}
+
+v3 mix_with_color(Material mat, v3 color) {
+  switch (mat.mtype) {
+  case MATTE: return mul(mat.color, color);
+  case METAL: return add(mat.color, scl(color, 0.5));
+  case DIELECTRIC: return scl(add(mat.color, color), 0.5);
+  case LIGHT: return mat.color;
+  }
+}
+ 
+typedef enum {
+  SPHERE
+} PrimitiveType;
+
+typedef struct {
+  PrimitiveType ptype;
+  Material mat;
   /* For the sphere */
   v3 center;
   float radius;
-
-  float albedo; // Ratio of light that is diffusely reflected
-
-  float reflectivity; // From 0 to 1, how reflective
-  float fuzziness; // How fuzzy do the reflections look
-
-  float eta; // Refractive index
 } Hittable;
 
 //   _______  __        ______   .______        ___       __           _______.
@@ -43,8 +104,8 @@ v3 sky_color;
 int num_hts = 0;
 Hittable hts[MAX_HITTABLES];
 
-int width = 1000;
-int height = 700;
+int width = 500;
+int height = 300;
 
 int max_recurse = 10;
 int num_samples = 20; // How many times to compute per pixel
@@ -88,26 +149,11 @@ v3 ray_at(v3 origin, v3 dir, float t) {
 
 void add_ht(Hittable ht) {
   assert(num_hts <= MAX_HITTABLES);
-  ht.id = num_hts;
   hts[num_hts++] = ht;
 }
 
-void add_sphere(v3 center, float radius, v3 color, float albedo, float reflectivity, float fuzziness, float eta) {
-  add_ht((Hittable){.type = SPHERE, .center = center, .radius = radius, .color = color,
-			  .albedo = albedo, .reflectivity = reflectivity,
-			  .fuzziness = fuzziness, .eta = eta});
-}
-
-void add_matte_sphere(v3 center, float radius, v3 color, float albedo) {
-  add_sphere(center, radius, color, albedo, 0, 0, 0);
-}
-
-void add_metal_sphere(v3 center, float radius, v3 color, float reflectivity, float fuzziness) {
-  add_sphere(center, radius, color, 0, reflectivity, fuzziness, 0);
-}
-
-void add_dielectric_sphere(v3 center, float radius, v3 color, float eta) {
-  add_sphere(center, radius, color, 1, 0, 0, eta);
+void add_sphere(v3 center, float radius, Material mat) {
+  add_ht((Hittable){.ptype = SPHERE, .mat = mat, .center = center, .radius = radius});
 }
 
 //      ___       ______ .___________. __    __       ___       __      
@@ -148,21 +194,21 @@ float intersect_sphere(v3 origin, v3 dir, v3 center, float radius) {
 }
 
 v3 get_normal(v3 point, Hittable ht) {
-  switch (ht.type) {
+  switch (ht.ptype) {
   case SPHERE:
     return normalize(sub(point, ht.center));
   }
   return (v3){0,0,0};
 }
 
-void get_closest_intersection(v3 origin, v3 dir, float *t, v3 *v, Hittable *ht, bool *inside) {
+void get_closest_intersection(v3 origin, v3 dir, float *t, v3 *v, Hittable *ht) {
   float t_closest = INFINITY;
   Hittable ht_closest;
 
   for (int i = 0; i < num_hts; i++) {
     Hittable ht = hts[i];
     float t;
-    switch (ht.type) {
+    switch (ht.ptype) {
     case SPHERE:
       t = intersect_sphere(origin, dir, ht.center, ht.radius);
       if (t != NO_SOL && t < t_closest) {
@@ -176,7 +222,6 @@ void get_closest_intersection(v3 origin, v3 dir, float *t, v3 *v, Hittable *ht, 
   if (t != NULL) *t = t_closest;
   if (v != NULL) *v = ray_at(origin, dir, t_closest);
   if (ht != NULL) *ht = ht_closest;
-  if (inside != NULL) *inside = dot(dir, get_normal(*v, ht_closest)) > 0;
 }
 
 v3 get_color(v3 origin, v3 dir, int recursion_depth, unsigned int *X) {
@@ -185,72 +230,27 @@ v3 get_color(v3 origin, v3 dir, int recursion_depth, unsigned int *X) {
 
   float t_closest;
   v3 intersection;
-  bool inside;
   Hittable ht_closest;
-  get_closest_intersection(origin, dir, &t_closest, &intersection, &ht_closest, &inside);
+  get_closest_intersection(origin, dir, &t_closest, &intersection, &ht_closest);
 
   if (t_closest == INFINITY)
     return sky_color;
-  else {
-    // Compute the normal (pointing outwards) ---------------------------------------- 
-    v3 normal = get_normal(intersection, ht_closest);
 
+  if (ht_closest.mat.mtype == LIGHT)
+    return ht_closest.mat.color;
 
-    // Add diffuse reflection ---------------------------------------- 
-    v3 diffuse_reflected_color = BLACK;
-    if (ht_closest.albedo < 1.0 && !inside) {
-      v3 reflected = add(normal, randsphere(X));
-      // Slightly offset intersection to prevent shadow acne
-      intersection = ray_at(intersection, normal, 0.001);
-      // Scale the reflected color by 1-albedo, then modulate with hittable's color
-      diffuse_reflected_color = scl(mul(ht_closest.color,
-					get_color(intersection, reflected, recursion_depth+1, X)),
-				    1.0-ht_closest.albedo);
-    }
+  v3 normal = get_normal(intersection, ht_closest);
 
-    // Add mirror reflection ---------------------------------------- 
-    v3 mirror_reflected_color = BLACK;
-    if (ht_closest.reflectivity > 0 && !inside) {
-      v3 reflected = add(reflect(neg(dir), normal),
-			 scl(randsphere(X), ht_closest.fuzziness));
-      intersection = ray_at(intersection, normal, 0.001);
-      mirror_reflected_color = get_color(intersection, reflected, recursion_depth+1, X);
-    }
+  v3 out_dir; float attenuation;
+  interact_with_material(ht_closest.mat, normal, dir, &out_dir, &attenuation, X);
 
-    // Add refraction ---------------------------------------- 
-    v3 refracted_color = BLACK;
-    if (ht_closest.eta != 0) {
-      float eta_ratio = inside ? ht_closest.eta : 1.0/ht_closest.eta;
-      bool reflecting;
-      if (inside)
-	normal = neg(normal);
-
-      // If Snell's equation is solvable, then refract.
-      // Else reflect (total internal reflection)
-      v3 new_ray;
-      if (eta_ratio * sinangle(dir, normal) <= 1) {
-	reflecting = false;
-	new_ray = refract(dir, normal, eta_ratio);
-      }
-      else {
-	reflecting = true;
-	new_ray = reflect(dir, normal);
-      }
-
-      intersection = ray_at(intersection, new_ray, 0.0001);
-      if (reflecting)
-	recursion_depth++;
-      refracted_color = get_color(intersection, new_ray, recursion_depth, X);
-    }
-
-    float r = ht_closest.reflectivity;
-    float eta = ht_closest.eta;
-    v3 final_color;
-    final_color = diffuse_reflected_color;
-    final_color = add(final_color, scl(mirror_reflected_color, 0.2*r));
-    final_color = add(final_color, refracted_color);
-    return colclamp(final_color);
-  }
+  // Offset intersection point slightly to prevent shadow acne
+  if (ht_closest.mat.mtype == DIELECTRIC)
+    intersection = ray_at(intersection, out_dir, 0.001);
+  else
+    intersection = ray_at(intersection, normal, 0.001);
+  v3 col = scl(get_color(intersection, out_dir, recursion_depth+1, X), 1.0-attenuation);
+  return mix_with_color(ht_closest.mat, col);
 }
 
 // The pixels are located at lattice points (x+0.5, y+0.5)
@@ -291,10 +291,11 @@ void render(unsigned char *pixels) {
 #define DEMO1
 #ifdef DEMO1 // Spheres of different materials on the ground, adapted from Ray Tracing in a Weekend
   sky_color = (v3){0.5,0.7,1};
-  add_matte_sphere((v3){0,-1000,0}, 1000, GREEN, 0.2); // Ground
-  add_dielectric_sphere((v3){-2,1,3}, 1, YELLOW, 1.3);
-  add_matte_sphere((v3){0,1,3}, 1, RED, 0.2);
-  add_metal_sphere((v3){2,1,3}, 1, BLUE, 0.5, 0.5);
+  add_sphere((v3){0,-1000,0}, 1000, matte(GREEN, 0.2));
+  add_sphere((v3){-2,1,3}, 1, dielectric(scl(YELLOW, 0.5), 1.3));
+  add_sphere((v3){0,1,3}, 1, matte(RED, 0.2));
+  add_sphere((v3){2,1,3}, 1, metal(BLUE, 1, 0.2));
+  add_sphere((v3){0,3,3}, 0.5, light((v3){5,5,5}));
   lookfrom = (v3){0,1.5,-3};
   lookat = (v3){0,1,3};
 #endif
@@ -380,7 +381,7 @@ void render(unsigned char *pixels) {
 #pragma acc loop independent
     for (int j = 0; j < width; j++) {
       unsigned int X = i*width + j;
-      v3 col = compute_pixel_color(i, j, &X);
+      v3 col = colclamp(compute_pixel_color(i, j, &X));
       int idx = 4*(i*width + j);
       pixels[idx] = col.x * 255;
       pixels[idx+1] = col.y * 255;
