@@ -101,11 +101,6 @@ v3 reflect(v3 v, v3 w) {
   return normalize(sub(scl(w, 2*dot(v, w)), v));
 }
 
-float sinangle(v3 v, v3 w) {
-  float x = dot(v,w)/len(v)/len(w);
-  return sqrtf(1-x*x);
-}
-
 // Floats -------------------------------------------------------
 
 float clampposf(float x) {

@@ -41,6 +41,12 @@ Material light(v3 color) {
   return (Material) {.mtype = LIGHT, .color = color};
 }
 
+float dielectric_reflectance(float cos_theta, float eta_ratio) {
+  float r0 = (1-eta_ratio) / (1+eta_ratio);
+  r0 *= r0;
+  return r0 + (1-r0) * powf(1-cos_theta, 5);
+}
+
 void interact_with_material(Material mat, v3 normal, v3 in_dir, v3 *out_dir, float *attenuation, unsigned int *X) {
   if (mat.mtype == MATTE) {
     *out_dir = add(normal, randsphere(X));
@@ -53,16 +59,19 @@ void interact_with_material(Material mat, v3 normal, v3 in_dir, v3 *out_dir, flo
   }
   else if (mat.mtype == DIELECTRIC) {
     bool inside = dot(in_dir, normal) > 0;
+    float eta_ratio = inside ? mat.eta : 1.0/mat.eta;
     if (inside)
       normal = neg(normal);
 
-    float eta_ratio = inside ? mat.eta : 1.0/mat.eta;
-    // If Snell's equation is solvable, then refract.
-    // Else reflect (total internal reflection)
-    if (eta_ratio * sinangle(in_dir, normal) <= 1)
-      *out_dir = refract(in_dir, normal, eta_ratio);
+    float cos_angle = fabsf(dot(in_dir, normal) / len(in_dir));
+    float sin_angle = sqrtf(1 - cos_angle*cos_angle);
+    float reflectance = dielectric_reflectance(cos_angle, mat.eta);
+    // If Snell's equation is not solvable, then reflect (i.e. total internal reflection).
+    // Else refract with a probability determined by reflectance at the angle.
+    if (eta_ratio * sin_angle > 1 || reflectance > randunif(X))
+      *out_dir = reflect(neg(in_dir), normal);
     else
-      *out_dir = reflect(in_dir, normal);
+      *out_dir = refract(in_dir, normal, eta_ratio);
     *attenuation = 0;
   }
   else if (mat.mtype == LIGHT) {
@@ -73,8 +82,8 @@ void interact_with_material(Material mat, v3 normal, v3 in_dir, v3 *out_dir, flo
 v3 mix_with_color(Material mat, v3 color) {
   switch (mat.mtype) {
   case MATTE: return mul(mat.color, color);
-  case METAL: return add(mat.color, scl(color, 0.5));
-  case DIELECTRIC: return scl(add(mat.color, color), 0.5);
+  case METAL: return mul(mat.color, color);
+  case DIELECTRIC: return mul(mat.color, color);
   case LIGHT: return mat.color;
   }
 }
@@ -245,10 +254,7 @@ v3 get_color(v3 origin, v3 dir, int recursion_depth, unsigned int *X) {
   interact_with_material(ht_closest.mat, normal, dir, &out_dir, &attenuation, X);
 
   // Offset intersection point slightly to prevent shadow acne
-  if (ht_closest.mat.mtype == DIELECTRIC)
-    intersection = ray_at(intersection, out_dir, 0.001);
-  else
-    intersection = ray_at(intersection, normal, 0.001);
+  intersection = ray_at(intersection, out_dir, 0.01);
   v3 col = scl(get_color(intersection, out_dir, recursion_depth+1, X), 1.0-attenuation);
   return mix_with_color(ht_closest.mat, col);
 }
@@ -291,11 +297,12 @@ void render(unsigned char *pixels) {
 #define DEMO1
 #ifdef DEMO1 // Spheres of different materials on the ground, adapted from Ray Tracing in a Weekend
   sky_color = (v3){0.5,0.7,1};
-  add_sphere((v3){0,-1000,0}, 1000, matte(GREEN, 0.2));
-  add_sphere((v3){-2,1,3}, 1, dielectric(scl(YELLOW, 0.5), 1.3));
+  //add_sphere((v3){0,-5000,0}, 5000, dielectric((v3){1,0.6,0.6}, 1.3));
+  add_sphere((v3){0,-5000,0}, 5000, matte(GREEN, 0.2));
+  add_sphere((v3){-2,1,3}, 1, dielectric(WHITE, 1.3));
   add_sphere((v3){0,1,3}, 1, matte(RED, 0.2));
-  add_sphere((v3){2,1,3}, 1, metal(BLUE, 1, 0.2));
-  add_sphere((v3){0,3,3}, 0.5, light((v3){5,5,5}));
+  add_sphere((v3){2,1,3}, 1, metal((v3){0.6,0.6,1}, 1, 0.2));
+  //add_sphere((v3){0,3,3}, 0.5, light((v3){5,5,5}));
   lookfrom = (v3){0,1.5,-3};
   lookat = (v3){0,1,3};
 #endif
