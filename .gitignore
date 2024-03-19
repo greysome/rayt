@@ -1,5 +1,8 @@
-.venv/
+venv/
+__pycache__/
 .secrets
 output.png
+lbvh.py
 cpu
+cpu-debug
 gpu

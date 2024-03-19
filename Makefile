@@ -1,16 +1,22 @@
-PGCCFLAGS = -acc -Minfo=accel -Mneginfo
-GCCFLAGS = -Wall -Wextra -Wpedantic -Wno-unused-but-set-variable -Wno-type-limits
+# VARIABLES ---------------------------------------- 
 
-all: clean gpu
+SRCS = vector.c random.c interval.c aabb.c material.c primitive.c lbvh_node.c lbvh.c render.c main.c
+CFLAGS = -Wall -Wextra -Wpedantic -Wno-unused-but-set-variable -Wno-unknown-pragmas -Wno-type-limits -O
+CFLAGS_PLUS_DEBUG = $(CFLAGS) -g -pg -fanalyzer -fsanitize=address -fsanitize=undefined -ftest-coverage
+GPU_FLAGS = -acc -Minfo=accel -Mneginfo -O2
 
-debug: GCCFLAGS += -g -fanalyzer -fsanitize=address -fsanitize=undefined -fprofile-arcs -ftest-coverage
-debug: cpu
+# TARGETS ---------------------------------------- 
 
-cpu: render.c
-	gcc $(GCCFLAGS) -o $@ $< -lm -DFOR_GPU=0
+all: cpu
 
-gpu: render.c
-	pgcc $(PGCCFLAGS) -o $@ $< -lm -lcudart -DFOR_GPU=1
+cpu: $(SRCS)
+	gcc $(CFLAGS) main.c -o cpu -lm -DFOR_GPU=0
+
+cpu-debug: $(SRCS)
+	gcc $(CFLAGS_PLUS_DEBUG) main.c -o cpu-debug -lm -DFOR_GPU=0
+
+gpu: $(SRCS)
+	pgcc $(GPU_FLAGS) main.c -o gpu -lcudart -lm -DFOR_GPU=1
 
 clean:
-	rm -f gpu *.o
+	rm -f *.gcda *.gcno cpu cpu-debug gpu gmon.out

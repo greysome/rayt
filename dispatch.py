@@ -51,17 +51,30 @@ def check_rendering_file(hostname, port, username, password, REMOTE_DIR):
 def main():
     hostname, port, username, password, DIR, REMOTE_DIR, PGCC_PATH = open('.secrets').read().split('\n')
     port = int(port)
-    filenames = ['util.c', 'render.c', 'Makefile']
+    filenames = ['stb_image_write.h', 'vector.c', 'random.c', 'interval.c', 'aabb.c', 'material.c', 'primitive.c', 'lbvh_node.c', 'lbvh.c', 'render.c', 'main.c', 'Makefile']
 
     # Send files via SCP
     send_files_via_scp(hostname, port, username, password, DIR, REMOTE_DIR, filenames)
     print(f'Transferred {filenames} over')
     
     # Execute SSH command to make and run the file
-    print('Making executable...')
-    command = f'cd {REMOTE_DIR} && PATH={PGCC_PATH}:/usr/bin make && ./gpu'
+    print('Building executable...')
+    command = f'cd {REMOTE_DIR} && PATH={PGCC_PATH}:/usr/bin make gpu'
     out, err = execute_ssh_command(hostname, port, username, password, command)
-    print(err)
+    if 'error' in err.lower():
+        print(err)
+        print('Error encountered while building executable, aborting!')
+        return
+
+    print('Running executable...')
+    command = f'cd {REMOTE_DIR} && ./gpu'
+    out, err = execute_ssh_command(hostname, port, username, password, command)
+
+    if err:
+        print(err)
+        print('Error encountered while running executable, aborting!')
+        return
+
     print(out)
     
     # Check for the presence of "rendering" file
