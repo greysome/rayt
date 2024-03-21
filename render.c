@@ -7,10 +7,10 @@
 
 #include <math.h>
 #include <stdio.h>
-#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 #include "vector.c"
 #include "random.c"
+#include "texture.c"
 #include "material.c"
 #include "primitive.c"
 #include "lbvh.c"
@@ -62,6 +62,7 @@ v3 get_color(v3 origin, v3 dir, unsigned int *X) {
   // Imitating a stack. I didn't use recursion because of the GPU's small stack.
   int depth = 0;
   Material materials[MAX_MAX_RECURSE];
+  v3 tex_colors[MAX_MAX_RECURSE];
 
   for (; depth < max_recurse; depth++) {
     // Obtain closest intersection
@@ -70,16 +71,23 @@ v3 get_color(v3 origin, v3 dir, unsigned int *X) {
     Primitive obj_closest;
     get_closest_intersection(cur_origin, cur_dir, &t_closest, &intersection, &obj_closest);
 
-    // If it is the sky, the rays stops bouncing and we proceed to 'add up' all the contributions.
+    // If it is the sky, the rays stops bouncing and we proceed to mix together
+    // all the color contributions
     if (t_closest == INFINITY) {
-      materials[depth] = (Material){.type = LIGHT, .color = sky_color};
+      cur_color = sky_color;
+      depth--;
       goto fold_stack;
     }
 
-    v3 normal = get_normal(intersection, obj_closest);
+    // Add material and texture color to the stack
+    materials[depth] = obj_closest.mat;
+    float u, v;
+    get_uv(obj_closest, intersection, &u, &v);
+    tex_colors[depth] = get_texture_color(obj_closest.tex, u, v, intersection);
+
+    v3 normal = get_normal(obj_closest, intersection);
     v3 out_dir;
     interact_with_material(obj_closest.mat, normal, cur_dir, &out_dir, X);
-    materials[depth] = obj_closest.mat;
 
     // Offset intersection point slightly to prevent shadow acne
     intersection = ray_at(intersection, out_dir, 0.01);
@@ -87,15 +95,16 @@ v3 get_color(v3 origin, v3 dir, unsigned int *X) {
     cur_dir = out_dir;
 
     // If it is a light source, rays also stops bouncing
+    // The light's material is already added onto the material stack, so we
+    // don't have to set cur_color
     if (obj_closest.mat.type == LIGHT)
       goto fold_stack;
   }
   goto fold_stack;
 
 fold_stack:
-  cur_color = WHITE;
   for (; depth >= 0; depth--)
-    cur_color = mix_with_color(materials[depth], cur_color);
+    cur_color = get_reflected_color(materials[depth], tex_colors[depth], cur_color);
   return cur_color;
 }
 
@@ -176,7 +185,8 @@ void render_to(unsigned char *pixels) {
     }
     rows_processed++;
 #if FOR_GPU == 0
-    printf("%d rows processed\n", rows_processed);
+    if (rows_processed % 10 == 0)
+      printf("%d rows processed\n", rows_processed);
 #endif
   }
 }
@@ -217,6 +227,8 @@ void run() {
   render_to(pixels);
   stbi_write_png("output.png", width, height, 4, pixels, width*sizeof(unsigned int));
   free(pixels);
+
+  free_textures();
 }
 
 #endif

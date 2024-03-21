@@ -20,11 +20,13 @@ typedef struct {
 
 // Common color definitions
 #define BLACK ((v3){0,0,0})
+#define WHITE ((v3){1,1,1})
+#define GRAY ((v3){0.2,0.2,0.2})
+#define LIGHTGRAY ((v3){0.5,0.5,0.5})
 #define RED ((v3){1,0,0})
 #define GREEN ((v3){0,1,0})
 #define BLUE ((v3){0,0,1})
 #define YELLOW ((v3){1,1,0})
-#define WHITE ((v3){1,1,1})
 
 // VECTORS -------------------------------------------------------
 // For brevity, functions on v3s are given short names (e.g. add, scl).
@@ -35,67 +37,67 @@ void pv3(v3 v) {
   printf("%f %f %f\n", v.x, v.y, v.z);
 }
 
-inline v3 add(v3 v, v3 w) {
+static inline v3 add(v3 v, v3 w) {
   return (v3){v.x+w.x, v.y+w.y, v.z+w.z};
 }
 
-inline v3 neg(v3 v) {
+static inline v3 neg(v3 v) {
   return (v3){-v.x,-v.y,-v.z};
 }
 
-inline v3 sub(v3 v, v3 w) {
+static inline v3 sub(v3 v, v3 w) {
   return (v3){v.x-w.x, v.y-w.y, v.z-w.z};
 }
 
-inline v3 mul(v3 v, v3 w) {
+static inline v3 mul(v3 v, v3 w) {
   return (v3){v.x*w.x, v.y*w.y, v.z*w.z};
 }
 
 // I wanted to name it div but apparently there's a name conflict
-inline v3 divi(v3 v, v3 w) {
+static inline v3 divi(v3 v, v3 w) {
   return (v3){v.x/w.x, v.y/w.y, v.z/w.z};
 }
 
-inline v3 scl(v3 v, float c) {
+static inline v3 scl(v3 v, float c) {
   return (v3){v.x*c, v.y*c, v.z*c};
 }
 
-inline v2 scl2(v2 v, float c) {
+static inline v2 scl2(v2 v, float c) {
   return (v2) {v.x*c, v.y*c};
 }
 
-inline float dot(v3 v, v3 w) {
+static inline float dot(v3 v, v3 w) {
   return v.x*w.x + v.y*w.y + v.z*w.z;
 }
 
-inline v3 cross(v3 v, v3 w) {
+static inline v3 cross(v3 v, v3 w) {
   return (v3){v.y*w.z - v.z*w.y,
               v.z*w.x - v.x*w.z,
               v.x*w.y - v.y*w.x};
 }
 
-inline float lensqr(v3 v) {
+static inline float lensqr(v3 v) {
   return v.x*v.x + v.y*v.y + v.z*v.z;
 }
 
-inline float len(v3 v) {
+static inline float len(v3 v) {
   return sqrtf(v.x*v.x + v.y*v.y + v.z*v.z);
 }
 
-inline v3 normalize(v3 v) {
+static inline v3 normalize(v3 v) {
   float c = len(v); 
   return (v3){v.x/c, v.y/c, v.z/c};
 }
 
-inline float dist(v3 v, v3 w) {
+static inline float dist(v3 v, v3 w) {
   return len(sub(v,w));
 }
 
-inline v3 lerp(v3 v, v3 w, float t) {
+static inline v3 lerp(v3 v, v3 w, float t) {
   return add(scl(v,1-t), scl(w,t));
 }
 
-inline v3 refract(v3 dir, v3 normal, float eta_ratio) {
+static inline v3 refract(v3 dir, v3 normal, float eta_ratio) {
   dir = normalize(dir);
   v3 v = scl(dir, eta_ratio);
   float c = -dot(dir,normal);
@@ -104,11 +106,11 @@ inline v3 refract(v3 dir, v3 normal, float eta_ratio) {
   return add(v, w);
 }
 
-inline v3 reflect(v3 v, v3 w) {
+static inline v3 reflect(v3 v, v3 w) {
   return normalize(sub(scl(w, 2*dot(v, w)), v));
 }
 
-inline v3 clampcol(v3 color) {
+static inline v3 clampcol(v3 color) {
   if (color.x > 1) color.x = 1;
   if (color.y > 1) color.y = 1;
   if (color.z > 1) color.z = 1;

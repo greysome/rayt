@@ -1,6 +1,11 @@
 #ifndef _HITTABLE_C
 #define _HITTABLE_C
 
+#if FOR_GPU == 1
+#include <cuda_runtime.h>
+#endif
+
+#include <math.h>
 #include <assert.h>
 #define STB_DS_IMPLEMENTATION
 #include "vector.c"
@@ -17,6 +22,7 @@ typedef enum {
 typedef struct {
   PrimitiveType type;
   Material mat;
+  Texture tex;
   v3 pos;
   unsigned int morton_code; // For LBVH purposes
   union {
@@ -31,11 +37,25 @@ Primitive objs[MAX_OBJS];
 int n_objs = 0;
 #pragma acc declare create(objs[:MAX_OBJS])
 
-void add_sphere(v3 pos, float r, Material mat) {
-  Primitive obj = (Primitive){.type = SPHERE, .mat = mat, .pos = pos, .r = r};
+void add_sphere(v3 pos, float r, Material mat, Texture tex) {
+  Primitive obj = (Primitive){.type = SPHERE, .mat = mat, .tex = tex, .pos = pos, .r = r};
   objs[n_objs++] = obj;
 }
 
+void free_textures() {
+  for (int i = 0; i < n_objs; i++) {
+    Primitive obj = objs[i];
+    if (obj.tex.type == IMAGE) {
+#if FOR_GPU == 0
+      free(obj.tex.pixels);
+#else
+      cudaError_t err;
+      if (err = cudaFree(obj.tex.pixels))
+	printf("TEXTURE: failed to free image data -- %s\n", cudaGetErrorString(err));
+#endif
+    }
+  }
+}
 
 
 //                            ,d      ,d                                    
@@ -82,6 +102,8 @@ float get_intersection(Primitive obj, v3 origin, v3 dir) {
     else
       return NO_SOL;
   }
+
+  return NO_SOL;
 }
 
 aabb get_aabb(Primitive obj) {
@@ -97,39 +119,32 @@ aabb get_aabb(Primitive obj) {
     v3 max_coords = {x+r, y+r, z+r};
     return (aabb){min_coords, max_coords};
   }
+
+  return (aabb){(v3){-INFINITY,-INFINITY,-INFINITY},
+		(v3){INFINITY,INFINITY,INFINITY}};
 }
 
-v3 get_normal(v3 point, Primitive obj) {
+v3 get_normal(Primitive obj, v3 p) {
   // -------------------------------------------------- 
   // Sphere
 
   if (obj.type == SPHERE)
-    return normalize(sub(point, obj.pos));
+    return normalize(sub(p, obj.pos));
+
+  return (v3){0,0,0};
 }
 
-/*
-void get_closest_intersection(v3 origin, v3 dir, float *t, v3 *v, Primitive *obj) {
-  float t_closest = INFINITY;
-  Primitive obj_closest;
+void get_uv(Primitive obj, v3 p, float *u, float *v) {
+  // -------------------------------------------------- 
+  // Sphere
 
-  for (int i = 0; i < arrlen(objs); i++) {
-    Primitive obj = objs[i];
-    float t;
-    switch (obj.type) {
-    case SPHERE:
-      t = get_intersection(obj, origin, dir);
-      if (t != NO_SOL && t < t_closest) {
-    	obj_closest = obj;
-    	t_closest = t;
-      }
-      break;
-    }
+  if (obj.type == SPHERE) {
+    // Get the unit normal vector pointing from sphere center to p
+    p = normalize(sub(p, obj.pos));
+    // Compute cartesian -> spherical coordinates, taking r=1
+    *v = acosf(p.y) / PI;
+    *u = atan2f(p.z, p.x)/(2*PI) + 0.5;
   }
-
-  if (t != NULL) *t = t_closest;
-  if (v != NULL) *v = ray_at(origin, dir, t_closest);
-  if (obj != NULL) *obj = obj_closest;
 }
-*/
 
 #endif

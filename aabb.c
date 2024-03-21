@@ -9,7 +9,7 @@ typedef struct {
   v3 max_coords;
 } aabb;
 
-aabb aabb_union(aabb B1, aabb B2) {
+static inline aabb aabb_union(aabb B1, aabb B2) {
   float min_x = fminf(B1.min_coords.x, B2.min_coords.x);
   float min_y = fminf(B1.min_coords.y, B2.min_coords.y);
   float min_z = fminf(B1.min_coords.z, B2.min_coords.z);
@@ -20,7 +20,7 @@ aabb aabb_union(aabb B1, aabb B2) {
 		 .max_coords = (v3){max_x, max_y, max_z}};
 }
 
-bool aabb_intersects(aabb aabb, v3 origin, v3 dir) {
+static inline bool aabb_intersects(aabb aabb, v3 origin, v3 dir) {
   Interval I1 = interval_within(origin.x, dir.x, aabb.min_coords.x, aabb.max_coords.x);
   Interval I2 = interval_within(origin.y, dir.y, aabb.min_coords.y, aabb.max_coords.y);
   Interval I3 = interval_within(origin.z, dir.z, aabb.min_coords.z, aabb.max_coords.z);

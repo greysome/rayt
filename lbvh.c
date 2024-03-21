@@ -42,28 +42,64 @@ unsigned int expand_bits(unsigned int v) {
   return v;
 }
 
-int clipi(int x, int low, int high) {
-  if (x < low) return low;
-  if (x > high) return high;
-  return x;
-}
-
 // Compute a 30-bit Morton code, where pos in [0,1]^3.
 unsigned int morton_code(v3 pos) {
   // We have 10 bits of precision for each coordinate. That is 1024 possible values.
   // Convert floating point to corresponding value in 0..1023
-  unsigned int x = (unsigned int) clipi(pos.x*1024,0,1023);
-  unsigned int y = (unsigned int) clipi(pos.y*1024,0,1023);
-  unsigned int z = (unsigned int) clipi(pos.z*1024,0,1023);
+  unsigned int x = (unsigned int) clampi(pos.x*1024,0,1023);
+  unsigned int y = (unsigned int) clampi(pos.y*1024,0,1023);
+  unsigned int z = (unsigned int) clampi(pos.z*1024,0,1023);
   unsigned int xx = expand_bits(x);
   unsigned int yy = expand_bits(y);
   unsigned int zz = expand_bits(z);
   return xx*4 + yy*2 + zz;
 }
 
+// TODO understand what this does
+// I ripped this off one of the links from README.md
 int get_split(int idx_left, int idx_right) {
-  // TODO: optimise this
-  return (idx_left+idx_right) / 2 + 1;
+  // Identical Morton codes => split the range in the middle.
+  unsigned int first_code = objs[idx_left].morton_code;
+  unsigned int last_code = objs[idx_right].morton_code;
+
+  if (first_code == last_code)
+    return ((idx_left + idx_right)>>1) + 1;
+
+  // Calculate the number of highest bits that are the same
+  // for all objects, using the count-leading-zeros intrinsic.
+
+#if FOR_GPU == 0
+  int common_prefix = __builtin_clz(first_code ^ last_code);
+#else
+  int common_prefix = __clz(first_code ^ last_code);
+#endif
+
+  // Use binary search to find where the next bit differs.
+  // Specifically, we are looking for the highest object that
+  // shares more than commonPrefix bits with the first one.
+
+  int split = idx_left; // initial guess
+  int step = idx_right - idx_left;
+
+  do {
+      step = (step + 1) >> 1; // exponential decrease
+      int new_split = split + step; // proposed new position
+
+      if (new_split < idx_right) {
+          unsigned int split_code = objs[new_split].morton_code;
+#if FOR_GPU == 0
+          int split_prefix = __builtin_clz(first_code ^ split_code);
+#else
+          int split_prefix = __clz(first_code ^ split_code);
+#endif
+
+          if (split_prefix > common_prefix)
+              split = new_split; // accept proposal
+      }
+  }
+  while (step > 1);
+
+  return split+1;
 }
 
 int compare_morton_codes(const void *obj1_, const void *obj2_) {

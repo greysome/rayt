@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "vector.c"
 #include "random.c"
+#include "texture.c"
 
 typedef enum {
   MATTE, METAL, DIELECTRIC, LIGHT
@@ -11,37 +12,38 @@ typedef enum {
 
 typedef struct {
   MaterialType type;
-  v3 color;
   union {
     /* For lambertians */
     float albedo; // Ratio of light that is absorbed
+
     /* For metal */
     struct {
       float reflectivity; // From 0 to 1, how reflective
       float fuzziness; // How fuzzy do the reflections look
     };
-    /* For dielectric */
+
+    /* For dielectrics */
     float eta; // Refractive index
   };
 } Material;
 
-Material matte(v3 color, float albedo) {
-  return (Material) {.type = MATTE, .color = color, .albedo = albedo};
+Material matte(float albedo) {
+  return (Material) {.type = MATTE, .albedo = albedo};
 }
 
-Material metal(v3 color, float reflectivity, float fuzziness) {
-  return (Material) {.type = METAL, .color = color, .reflectivity = reflectivity, .fuzziness = fuzziness};
+Material metal(float reflectivity, float fuzziness) {
+  return (Material) {.type = METAL, .reflectivity = reflectivity, .fuzziness = fuzziness};
 }
 
-Material dielectric(v3 color, float eta) {
-  return (Material) {.type = DIELECTRIC, .color = color, .eta = eta};
+Material dielectric(float eta) {
+  return (Material) {.type = DIELECTRIC, .eta = eta};
 }
 
-Material light(v3 color) {
-  return (Material) {.type = LIGHT, .color = color};
+Material light() {
+  return (Material) {.type = LIGHT};
 }
 
-inline float dielectric_reflectance(float cos_theta, float eta_ratio) {
+static inline float dielectric_reflectance(float cos_theta, float eta_ratio) {
   float r0 = (1-eta_ratio) / (1+eta_ratio);
   r0 *= r0;
   return r0 + (1-r0) * powf(1-cos_theta, 5);
@@ -73,13 +75,14 @@ void interact_with_material(Material mat, v3 normal, v3 in_dir, v3 *out_dir, uns
   }
 }
 
-inline v3 mix_with_color(Material mat, v3 color) {
+static inline v3 get_reflected_color(Material mat, v3 tex_color, v3 in_color) {
   switch (mat.type) {
-  case MATTE: return scl(mul(mat.color, color), 1.0-mat.albedo);
-  case METAL: return scl(mul(mat.color, color), mat.reflectivity);
-  case DIELECTRIC: return mul(mat.color, color);
-  case LIGHT: return mat.color;
+  case MATTE: return scl(mul(tex_color, in_color), 1.0-mat.albedo);
+  case METAL: return scl(mul(tex_color, in_color), mat.reflectivity);
+  case DIELECTRIC: return mul(tex_color, in_color);
+  case LIGHT: return tex_color;
   }
+  return BLACK;
 }
 
 #endif

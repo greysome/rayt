@@ -11,11 +11,11 @@ typedef struct {
   float high;
 } Interval;
 
-bool is_empty_interval(Interval I) {
+static inline bool is_empty_interval(Interval I) {
   return I.low == INFINITY && I.high == INFINITY;
 }
 
-Interval interval_within(float start, float speed, float low, float high) {
+static inline Interval interval_within(float start, float speed, float low, float high) {
   if (speed == 0) {
     if (low < start && start < high)
       return (Interval){0, INFINITY};
@@ -38,7 +38,7 @@ Interval interval_within(float start, float speed, float low, float high) {
   return (Interval){t1,t2};
 }
 
-Interval interval_intersect(Interval I1, Interval I2) {
+static inline Interval interval_intersect(Interval I1, Interval I2) {
   if (is_empty_interval(I1) || is_empty_interval(I2))
     return INTERVAL_EMPTY;
   float M = fmaxf(I1.low, I2.low);

@@ -51,7 +51,7 @@ def check_rendering_file(hostname, port, username, password, REMOTE_DIR):
 def main():
     hostname, port, username, password, DIR, REMOTE_DIR, PGCC_PATH = open('.secrets').read().split('\n')
     port = int(port)
-    filenames = ['stb_image_write.h', 'vector.c', 'random.c', 'interval.c', 'aabb.c', 'material.c', 'primitive.c', 'lbvh_node.c', 'lbvh.c', 'render.c', 'main.c', 'Makefile']
+    filenames = ['stb_image.h', 'stb_image_write.h', 'vector.c', 'random.c', 'interval.c', 'aabb.c', 'texture.c', 'material.c', 'primitive.c', 'lbvh_node.c', 'lbvh.c', 'render.c', 'main.c', 'Makefile']
 
     # Send files via SCP
     send_files_via_scp(hostname, port, username, password, DIR, REMOTE_DIR, filenames)

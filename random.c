@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include "vector.c"
 
-inline float randunif(unsigned int *X) {
+static inline float randunif(unsigned int *X) {
   // I use a straightforward linear congruential generator.
   // The choice of parameters m, a, c is taken from a table entry in the
   // Wikipedia page.
@@ -12,7 +12,7 @@ inline float randunif(unsigned int *X) {
   return ((float)*X) / 4294967296;
 }
 
-inline v2 randdisk(unsigned int *X) {
+static inline v2 randdisk(unsigned int *X) {
   while (true) {
     float x = randunif(X)*2-1;
     float y = randunif(X)*2-1;
@@ -21,13 +21,13 @@ inline v2 randdisk(unsigned int *X) {
   }
 }
 
-inline v2 randsquare(unsigned int *X) {
+static inline v2 randsquare(unsigned int *X) {
   float x = randunif(X)*2-1;
   float y = randunif(X)*2-1;
   return (v2){x,y};
 }
 
-inline v3 randsphere(unsigned int *X) {
+static inline v3 randsphere(unsigned int *X) {
   float x = randunif(X)*2-1;
   float y = randunif(X)*2-1;
   float z = randunif(X)*2-1;
