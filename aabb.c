@@ -9,6 +9,17 @@ typedef struct {
   v3 max_coords;
 } aabb;
 
+static inline aabb aabb_pad(aabb B) {
+  float min_x = B.min_coords.x;
+  float min_y = B.min_coords.y;
+  float min_z = B.min_coords.z;
+  float max_x = B.max_coords.x;
+  float max_y = B.max_coords.y;
+  float max_z = B.max_coords.z;
+  return (aabb) {(v3){min_x-1, min_y-1, min_z-1},
+		 (v3){max_x+1, max_y+1, max_z+1}};
+}
+
 static inline aabb aabb_union(aabb B1, aabb B2) {
   float min_x = fminf(B1.min_coords.x, B2.min_coords.x);
   float min_y = fminf(B1.min_coords.y, B2.min_coords.y);
@@ -16,8 +27,8 @@ static inline aabb aabb_union(aabb B1, aabb B2) {
   float max_x = fmaxf(B1.max_coords.x, B2.max_coords.x);
   float max_y = fmaxf(B1.max_coords.y, B2.max_coords.y);
   float max_z = fmaxf(B1.max_coords.z, B2.max_coords.z);
-  return (aabb) {.min_coords = (v3){min_x, min_y, min_z},
-		 .max_coords = (v3){max_x, max_y, max_z}};
+  return (aabb) {(v3){min_x, min_y, min_z},
+		 (v3){max_x, max_y, max_z}};
 }
 
 static inline bool aabb_intersects(aabb aabb, v3 origin, v3 dir) {

@@ -13,9 +13,6 @@ typedef enum {
 typedef struct {
   MaterialType type;
   union {
-    /* For lambertians */
-    float albedo; // Ratio of light that is absorbed
-
     /* For metal */
     struct {
       float reflectivity; // From 0 to 1, how reflective
@@ -27,8 +24,8 @@ typedef struct {
   };
 } Material;
 
-Material matte(float albedo) {
-  return (Material) {.type = MATTE, .albedo = albedo};
+Material matte() {
+  return (Material) {.type = MATTE};
 }
 
 Material metal(float reflectivity, float fuzziness) {
@@ -77,7 +74,7 @@ void interact_with_material(Material mat, v3 normal, v3 in_dir, v3 *out_dir, uns
 
 static inline v3 get_reflected_color(Material mat, v3 tex_color, v3 in_color) {
   switch (mat.type) {
-  case MATTE: return scl(mul(tex_color, in_color), 1.0-mat.albedo);
+  case MATTE: return mul(tex_color, in_color);
   case METAL: return scl(mul(tex_color, in_color), mat.reflectivity);
   case DIELECTRIC: return mul(tex_color, in_color);
   case LIGHT: return tex_color;

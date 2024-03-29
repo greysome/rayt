@@ -63,8 +63,8 @@ void demo_textures() {
   width = 700;
   height = 500;
   sky_color = (v3){.6,.8,1};
-  add_sphere((v3){0,-1000,0}, 1000, matte(0), checker_abs(1, WHITE, GRAY));
-  add_sphere((v3){-1,1,1}, 1, matte(0), image("assets/earthmap.jpg"));
+  add_sphere((v3){0,-1000,0}, 1000, matte(), checker_abs(1, WHITE, GRAY));
+  add_sphere((v3){-1,1,1}, 1, matte(), image("assets/earthmap.jpg"));
   //add_sphere((v3){-1,1,1}, 1, matte(0.5), checker_rel(0.25, BLUE, RED));
   add_sphere((v3){1,1,1}, 1, dielectric(1.5), solid(WHITE));
   lookfrom = (v3){0,2,-7};
@@ -73,12 +73,32 @@ void demo_textures() {
   num_samples = 10;
 }
 
+void demo_quads() {
+  width = 300;
+  height = 300;
+  sky_color = (v3){.6,.8,1};
+
+  add_quad((v3){-3,-2,5}, (v3){0,0,-4}, (v3){0,4,0}, matte(), solid((v3){1,.2,.2}));
+  add_quad((v3){-2,-2,0}, (v3){4,0,0}, (v3){0,4,0}, matte(), solid((v3){.2,1,.2}));
+  add_quad((v3){3,-2,1}, (v3){0,0,4}, (v3){0,4,0}, matte(), solid((v3){.2,.2,1}));
+  add_quad((v3){-2,3,1}, (v3){4,0,0}, (v3){0,0,4}, matte(), solid((v3){1,.5,0}));
+  add_quad((v3){-2,-3,5}, (v3){4,0,0}, (v3){0,0,-4}, matte(), solid((v3){.2,.8,.8}));
+
+  num_samples = 20;
+  max_recurse = 50;
+  vfov = 80;
+  lookfrom = (v3){0,0,9};
+  lookat = (v3){0,0,0};
+  defocus_angle = 0;
+}
+
 void setup_scene() {
-  int i = 2;
+  int i = 3;
   switch (i) {
   case 0: demo_materials(); break;
   case 1: demo_many_spheres(); break;
   case 2: demo_textures(); break;
+  case 3: demo_quads(); break;
   default: demo_materials(); break;
   }
   stack_size = 1024;

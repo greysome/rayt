@@ -23,9 +23,8 @@ aabb get_scene_aabb(Primitive *objs, int n) {
     if (pos.z < min_z) min_z = pos.z;
     if (pos.z > max_z) max_z = pos.z;
   }
-  // A padding of 1 is added to make sure the aabb is not degenerate
-  return (aabb) {(v3){min_x-1, min_y-1, min_z-1},
-		 (v3){max_x+1, max_y+1, max_z+1}};
+  return aabb_pad((aabb){(v3){min_x-1, min_y-1, min_z-1},
+			 (v3){max_x+1, max_y+1, max_z+1}});
 }
 
 v3 get_relative_coords(Primitive obj, aabb scene_aabb) {
@@ -157,10 +156,11 @@ void build_lbvh() {
   set_aabb(0);
 }
 
-void get_closest_intersection(v3 origin, v3 dir, float *t, v3 *v, Primitive *obj) {
+void get_closest_intersection(v3 origin, v3 dir, HitRecord *hr) {
   // The values which will be written to the pointers
   float t_closest = INFINITY;
   Primitive obj_closest;
+  float u_closest, v_closest;
 
   // Internal variables
   lbvh_node stack[64];
@@ -177,18 +177,24 @@ void get_closest_intersection(v3 origin, v3 dir, float *t, v3 *v, Primitive *obj
 
     if (intersects_l && child_l.is_leaf) {
       Primitive obj = objs[child_l.idx_obj];
-      float t = get_intersection(obj, origin, dir);
+      float u, v;
+      float t = get_intersection(obj, origin, dir, &u, &v);
       if (t > 0 && t < t_closest) {
 	t_closest = t;
 	obj_closest = obj;
+	u_closest = u;
+	v_closest = v;
       }
     }
     if (intersects_r && child_r.is_leaf) {
       Primitive obj = objs[child_r.idx_obj];
-      float t = get_intersection(obj, origin, dir);
+      float u, v;
+      float t = get_intersection(obj, origin, dir, &u, &v);
       if (t > 0 && t < t_closest) {
 	t_closest = t;
 	obj_closest = obj;
+	u_closest = u;
+	v_closest = v;
       }
     }
 
@@ -204,9 +210,11 @@ void get_closest_intersection(v3 origin, v3 dir, float *t, v3 *v, Primitive *obj
   }
   while (node.idx_obj != -1);
 
-  *t = t_closest;
-  *v = ray_at(origin, dir, t_closest);
-  *obj = obj_closest;
+  hr->t = t_closest;
+  hr->p = ray_at(origin, dir, t_closest);
+  hr->u = u_closest;
+  hr->v = v_closest;
+  hr->obj = obj_closest;
 }
 
 #endif

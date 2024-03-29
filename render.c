@@ -66,38 +66,34 @@ v3 get_color(v3 origin, v3 dir, unsigned int *X) {
 
   for (; depth < max_recurse; depth++) {
     // Obtain closest intersection
-    float t_closest;
-    v3 intersection;
-    Primitive obj_closest;
-    get_closest_intersection(cur_origin, cur_dir, &t_closest, &intersection, &obj_closest);
+    HitRecord hr;
+    get_closest_intersection(cur_origin, cur_dir, &hr);
 
     // If it is the sky, the rays stops bouncing and we proceed to mix together
     // all the color contributions
-    if (t_closest == INFINITY) {
+    if (hr.t == INFINITY) {
       cur_color = sky_color;
       depth--;
       goto fold_stack;
     }
 
     // Add material and texture color to the stack
-    materials[depth] = obj_closest.mat;
-    float u, v;
-    get_uv(obj_closest, intersection, &u, &v);
-    tex_colors[depth] = get_texture_color(obj_closest.tex, u, v, intersection);
+    materials[depth] = hr.obj.mat;
+    tex_colors[depth] = get_texture_color(hr.obj.tex, hr.u, hr.v, hr.p);
 
-    v3 normal = get_normal(obj_closest, intersection);
+    v3 normal = get_normal(hr.obj, hr.p);
     v3 out_dir;
-    interact_with_material(obj_closest.mat, normal, cur_dir, &out_dir, X);
+    interact_with_material(hr.obj.mat, normal, cur_dir, &out_dir, X);
 
     // Offset intersection point slightly to prevent shadow acne
-    intersection = ray_at(intersection, out_dir, 0.01);
-    cur_origin = intersection;
+    hr.p = ray_at(hr.p, out_dir, 0.01);
+    cur_origin = hr.p;
     cur_dir = out_dir;
 
     // If it is a light source, rays also stops bouncing
     // The light's material is already added onto the material stack, so we
     // don't have to set cur_color
-    if (obj_closest.mat.type == LIGHT)
+    if (hr.obj.mat.type == LIGHT)
       goto fold_stack;
   }
   goto fold_stack;

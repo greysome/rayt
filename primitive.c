@@ -6,6 +6,7 @@
 #endif
 
 #include <math.h>
+#include <stdio.h>
 #include <assert.h>
 #define STB_DS_IMPLEMENTATION
 #include "vector.c"
@@ -13,10 +14,10 @@
 #include "aabb.c"
 #include "material.c"
 
-#define NO_SOL -1
+#define NO_SOL -INFINITY
  
 typedef enum {
-  SPHERE
+  SPHERE, QUAD, TRIANGLE
 } PrimitiveType;
 
 typedef struct {
@@ -26,9 +27,23 @@ typedef struct {
   v3 pos;
   unsigned int morton_code; // For LBVH purposes
   union {
+    // Sphere
     float r;
+    // Quad/triangle
+    struct {
+      v3 u, v;
+      v3 normal, w;
+      float D;
+    };
   };
 } Primitive;
+
+typedef struct {
+  float t;
+  v3 p;
+  Primitive obj;
+  float u, v;
+} HitRecord;
 
 
 #define MAX_OBJS 100000
@@ -39,6 +54,28 @@ int n_objs = 0;
 
 void add_sphere(v3 pos, float r, Material mat, Texture tex) {
   Primitive obj = (Primitive){.type = SPHERE, .mat = mat, .tex = tex, .pos = pos, .r = r};
+  objs[n_objs++] = obj;
+}
+
+void add_quad(v3 pos, v3 u, v3 v, Material mat, Texture tex) {
+  v3 n = cross(u,v);
+  v3 normal = normalize(n);
+  Primitive obj = (Primitive){.type = QUAD, .mat = mat, .tex = tex, .pos = pos,
+			      .u = u, .v = v,
+			      .normal = normal, .w = scl(n, 1.0/lensqr(n)),
+			      .D = dot(normal, pos)};
+  objs[n_objs++] = obj;
+}
+
+void add_triangle(v3 p1, v3 p2, v3 p3, Material mat, Texture tex) {
+  v3 u = sub(p2,p1);
+  v3 v = sub(p3,p1);
+  v3 n = cross(u,v);
+  v3 normal = normalize(n);
+  Primitive obj = (Primitive){.type = TRIANGLE, .mat = mat, .tex = tex, .pos = p1,
+			      .u = u, .v = v,
+			      .normal = normal, .w = scl(n, 1.0/lensqr(n)),
+			      .D = dot(normal, p1)};
   objs[n_objs++] = obj;
 }
 
@@ -68,48 +105,7 @@ void free_textures() {
 //    aa,    ,88                                                            
 //     "Y8bbdP"                                                             
 
-
-float get_intersection(Primitive obj, v3 origin, v3 dir) {
-  // -------------------------------------------------- 
-  // Sphere
-
-  if (obj.type == SPHERE) {
-    // We want to solve the quadratic
-    // <origin + t*dir - center, origin + t*dir - center> = radius^2
-    // => <v+t*w, v+t*w> - radius^2
-    //      = t^2<w,w> + 2t<v,w> + (<v,v>-radius^2)
-    //      = 0,
-    // where v = origin - center; w = dir.
-
-    v3 v = sub(origin, obj.pos);
-    v3 w = dir;
-
-    // Coefficients of the quadratic ax^2+bx+c
-    float a = dot(w,w);
-    float b = 2.0 * dot(v,w);
-    float c = dot(v,v) - obj.r*obj.r;
-
-    float discr = b*b - 4*a*c;
-    if (discr >= 0) {
-      // Return the smallest positive solution, or NO_SOL
-      float sqrt_discr = sqrtf(discr);
-      float t1 = (-b-sqrt_discr) / (2.0*a);
-      float t2 = (-b+sqrt_discr) / (2.0*a);
-      if (t1 > 0) return t1;
-      else if (t2 > 0) return t2;
-      else return NO_SOL;
-    }
-    else
-      return NO_SOL;
-  }
-
-  return NO_SOL;
-}
-
 aabb get_aabb(Primitive obj) {
-  // -------------------------------------------------- 
-  // Sphere
-
   if (obj.type == SPHERE) {
     float x = obj.pos.x;
     float y = obj.pos.y;
@@ -120,24 +116,34 @@ aabb get_aabb(Primitive obj) {
     return (aabb){min_coords, max_coords};
   }
 
+  else if (obj.type == QUAD || obj.type == TRIANGLE) {
+    v3 v = obj.pos;
+    v3 w = add(obj.pos, add(obj.u, obj.v));
+    float min_x = fminf(v.x, w.x);
+    float min_y = fminf(v.y, w.y);
+    float min_z = fminf(v.z, w.z);
+    float max_x = fmaxf(v.x, w.x);
+    float max_y = fmaxf(v.y, w.y);
+    float max_z = fmaxf(v.z, w.z);
+    return aabb_pad((aabb){(v3){min_x,min_y,min_z},
+			   (v3){max_x,max_y,max_z}});
+  }
+
   return (aabb){(v3){-INFINITY,-INFINITY,-INFINITY},
 		(v3){INFINITY,INFINITY,INFINITY}};
 }
 
 v3 get_normal(Primitive obj, v3 p) {
-  // -------------------------------------------------- 
-  // Sphere
-
   if (obj.type == SPHERE)
     return normalize(sub(p, obj.pos));
+
+  else if (obj.type == QUAD || obj.type == TRIANGLE)
+    return obj.normal;
 
   return (v3){0,0,0};
 }
 
 void get_uv(Primitive obj, v3 p, float *u, float *v) {
-  // -------------------------------------------------- 
-  // Sphere
-
   if (obj.type == SPHERE) {
     // Get the unit normal vector pointing from sphere center to p
     p = normalize(sub(p, obj.pos));
@@ -145,6 +151,81 @@ void get_uv(Primitive obj, v3 p, float *u, float *v) {
     *v = acosf(p.y) / PI;
     *u = atan2f(p.z, p.x)/(2*PI) + 0.5;
   }
+
+  else if (obj.type == QUAD || obj.type == TRIANGLE) {
+    *u = dot(obj.w, cross(p, obj.v));
+    *v = dot(obj.w, cross(obj.u, p));
+  }
+}
+
+float get_intersection(Primitive obj, v3 origin, v3 dir, float *u, float *v) {
+  if (obj.type == SPHERE) {
+    // We want to solve the quadratic
+    // <origin + t*dir - center, origin + t*dir - center> = radius^2
+    // => <V+t*W, V+t*W> - radius^2
+    //      = t^2<W,W> + 2t<V,W> + (<V,V>-radius^2)
+    //      = 0,
+    // where V = origin - center; W = dir.
+
+    v3 V = sub(origin, obj.pos);
+    v3 W = dir;
+
+    // Coefficients of the quadratic ax^2+bx+c
+    float a = dot(W,W);
+    float b = 2.0 * dot(V,W);
+    float c = dot(V,V) - obj.r*obj.r;
+
+    float discr = b*b - 4*a*c;
+    if (discr >= 0) {
+      // Return the smallest positive solution, or NO_SOL
+      float sqrt_discr = sqrtf(discr);
+      float t1 = (-b-sqrt_discr) / (2.0*a);
+      float t2 = (-b+sqrt_discr) / (2.0*a);
+      if (t1 > 0) {
+	v3 p = ray_at(origin, dir, t1);
+	get_uv(obj, p, u, v);
+	return t1;
+      }
+      else if (t2 > 0) {
+	v3 p = ray_at(origin, dir, t2);
+	get_uv(obj, p, u, v);
+	return t2;
+      }
+      else return NO_SOL;
+    }
+    else
+      return NO_SOL;
+  }
+
+  else if (obj.type == QUAD || obj.type == TRIANGLE) {
+    // First we find where the ray intersects the plane containing the quad
+    // If n is the normal vector out of the quad, we solve for t the following equation:
+    // <n, origin+t*dir> = <n, obj.pos>
+    // => t*<n,dir> = D - <n, origin>,
+    // where D = <n, obj.pos> and the normal n are stored in the object's data
+    float denom = dot(obj.normal, dir);
+    // Ray is parallel to plane
+    if (fabs(denom) < 0.000001)
+      return NO_SOL;
+    float t = (obj.D - dot(obj.normal, origin)) / denom;
+
+    // Find coefficients of intersection points wrt u and v
+    v3 p = sub(ray_at(origin, dir, t), obj.pos);
+    get_uv(obj, p, u, v);
+
+    // The quad corresponds to the region of the plane where
+    // 0 <= u, v <= 1.
+    if (*u < 0 || *u > 1 || *v < 0 || *v > 1)
+      return NO_SOL;
+    // The triangle corresponds to the region of the plane where
+    // 0 <= u, v <= 1 and u+v <= 1
+    if (obj.type == TRIANGLE && *u+*v > 1)
+      return NO_SOL;
+
+    return t;
+  }
+
+  return NO_SOL;
 }
 
 #endif
