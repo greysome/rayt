@@ -85,20 +85,45 @@ void demo_quads() {
   add_quad((v3){-2,-3,5}, (v3){4,0,0}, (v3){0,0,-4}, matte(), solid((v3){.2,.8,.8}));
 
   num_samples = 20;
-  max_recurse = 50;
+  max_recurse = 10;
   vfov = 80;
   lookfrom = (v3){0,0,9};
   lookat = (v3){0,0,0};
   defocus_angle = 0;
 }
 
+
+
+float sdf1(v3 p) {
+  return sqrtf(0.3*p.x*p.x + p.y*p.y + p.z*p.z) - 1;
+}
+aabb sdf1_aabb = {(v3){-2,-1,-1}, (v3){2,1,1}};
+
+void demo_sdf() {
+  width = 500;
+  height = 300;
+  sky_color = (v3){.6,.8,1};
+
+  // Ground
+  add_quad((v3){-1000,0,-1000}, (v3){2000,0,0}, (v3){0,0,2000}, matte(), solid(GREEN));
+  add_sdf((v3){0,1,0}, 1, matte(), solid(RED));
+
+  num_samples = 100;
+  max_recurse = 10;
+  vfov = 60;
+  lookfrom = (v3){0,2,-6};
+  lookat = (v3){0,1,0};
+  defocus_angle = 0;
+}
+
 void setup_scene() {
-  int i = 3;
+  int i = 4;
   switch (i) {
   case 0: demo_materials(); break;
   case 1: demo_many_spheres(); break;
   case 2: demo_textures(); break;
   case 3: demo_quads(); break;
+  case 4: demo_sdf(); break;
   default: demo_materials(); break;
   }
   stack_size = 1024;

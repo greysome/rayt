@@ -17,7 +17,7 @@
 #define NO_SOL -INFINITY
  
 typedef enum {
-  SPHERE, QUAD, TRIANGLE
+  SPHERE, QUAD, TRIANGLE, SDF
 } PrimitiveType;
 
 typedef struct {
@@ -27,13 +27,20 @@ typedef struct {
   v3 pos;
   unsigned int morton_code; // For LBVH purposes
   union {
-    // Sphere
+    /* Sphere */
     float r;
-    // Quad/triangle
+
+    /* Quad/triangle */
     struct {
       v3 u, v;
       v3 normal, w;
       float D;
+    };
+
+    /* SDF */
+    struct {
+      int sdf_id;
+      float size;
     };
   };
 } Primitive;
@@ -79,6 +86,14 @@ void add_triangle(v3 p1, v3 p2, v3 p3, Material mat, Texture tex) {
   objs[n_objs++] = obj;
 }
 
+void add_sdf(v3 p, float size, Material mat, Texture tex) {
+  // SDFs don't support non-solid textures, because how do you compute uv coordinates!?
+  assert(tex.type == SOLID);
+  Primitive obj = (Primitive){.type = SDF, .mat = mat, .tex = tex, .pos = p,
+			      .size = size};
+  objs[n_objs++] = obj;
+}
+
 void free_textures() {
   for (int i = 0; i < n_objs; i++) {
     Primitive obj = objs[i];
@@ -93,6 +108,13 @@ void free_textures() {
     }
   }
 }
+
+v3 get_sdf_coords(Primitive obj, v3 p) {
+  return scl(sub(p, obj.pos), 1.0/obj.size);
+}
+
+float sdf1(v3 p);
+aabb sdf1_aabb;
 
 
 //                            ,d      ,d                                    
@@ -129,6 +151,11 @@ aabb get_aabb(Primitive obj) {
 			   (v3){max_x,max_y,max_z}});
   }
 
+  else if (obj.type == SDF) {
+    return (aabb) {add(scl(sdf1_aabb.min_coords, obj.size), obj.pos),
+		   add(scl(sdf1_aabb.max_coords, obj.size), obj.pos)};
+  }
+
   return (aabb){(v3){-INFINITY,-INFINITY,-INFINITY},
 		(v3){INFINITY,INFINITY,INFINITY}};
 }
@@ -139,6 +166,14 @@ v3 get_normal(Primitive obj, v3 p) {
 
   else if (obj.type == QUAD || obj.type == TRIANGLE)
     return obj.normal;
+
+  else if (obj.type == SDF) {
+    float e = 0.0001;
+    float dx = sdf1(get_sdf_coords(obj, add(p, (v3){e,0,0}))) - sdf1(get_sdf_coords(obj, add(p, (v3){-e,0,0})));
+    float dy = sdf1(get_sdf_coords(obj, add(p, (v3){0,e,0}))) - sdf1(get_sdf_coords(obj, add(p, (v3){0,-e,0})));
+    float dz = sdf1(get_sdf_coords(obj, add(p, (v3){0,0,e}))) - sdf1(get_sdf_coords(obj, add(p, (v3){0,0,-e})));
+    return normalize((v3){dx,dy,dz});
+  }
 
   return (v3){0,0,0};
 }
@@ -223,6 +258,24 @@ float get_intersection(Primitive obj, v3 origin, v3 dir, float *u, float *v) {
       return NO_SOL;
 
     return t;
+  }
+
+  else if (obj.type == SDF) {
+    float l = len(dir);
+    dir = normalize(dir);
+    float cur_t = 0;
+    v3 cur_p = origin;
+
+    while (true) {
+      float sd = sdf1(get_sdf_coords(obj, cur_p));
+
+      if (fabs(sd) < 0.00001) return cur_t / l;
+      if (sd > 100000) return NO_SOL;
+
+      // Make sure the ray always marches forward
+      cur_t += fabs(sd);
+      cur_p = ray_at(origin, dir, cur_t);
+    }
   }
 
   return NO_SOL;

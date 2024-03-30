@@ -48,6 +48,10 @@ static inline float dielectric_reflectance(float cos_theta, float eta_ratio) {
 
 void interact_with_material(Material mat, v3 normal, v3 in_dir, v3 *out_dir, unsigned int *X) {
   if (mat.type == MATTE) {
+    // For quads/triangles the normal could face either way.
+    // Thus make sure the normal is in the same hemisphere as the incoming ray.
+    if (dot(in_dir, normal) > 0)
+      normal = neg(normal);
     *out_dir = add(normal, randsphere(X));
   }
   else if (mat.type == METAL) {
