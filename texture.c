@@ -14,6 +14,11 @@ typedef enum {
 } TextureType;
 
 typedef struct {
+  int w, h;
+  unsigned char *pixels;
+} Image;
+
+typedef struct {
   TextureType type;
   union {
     /* For solids */
@@ -27,12 +32,18 @@ typedef struct {
     };
 
     /* For image */
-    struct {
-      int w, h;
-      unsigned char *pixels;
-    };
+    int image_id;
   };
 } Texture;
+
+
+#define MAX_IMAGES 1000
+#define NO_IMAGE -1
+
+int n_images = 0;
+Image images[MAX_IMAGES];
+#pragma acc declare create(images[:MAX_IMAGES])
+
 
 Texture solid(v3 color) {
   return (Texture) {.type = SOLID, .color = color};
@@ -46,19 +57,20 @@ Texture checker_rel(float size, v3 color_even, v3 color_odd) {
   return (Texture) {.type = CHECKER_REL, .size = size, .color_even = color_even, .color_odd = color_odd };
 }
 
-Texture image(const char *img_path) {
+int load_image(const char *img_path) {
   int w,h,n;
   unsigned char *pixels;
   pixels = stbi_load(img_path, &w, &h, &n, 3);
   if (pixels == NULL) {
     printf("TEXTURE: '%s' -- %s\n", img_path, stbi_failure_reason());
-    return solid((v3){0,1,1});
+    return NO_IMAGE;
   }
-  printf("TEXTURE: loaded %s, (w=%d,h=%d,n=%d,p=%p)\n", img_path, w, h, n, pixels);
-  // Transfer image texture data to the GPU
+  printf("TEXTURE: loaded %s (w=%d, h=%d, n=%d, p=%p)\n", img_path, w, h, n, pixels);
 #if FOR_GPU == 0
-  return (Texture) {.type = IMAGE, .w = w, .h = h, .pixels = pixels};
+  images[n_images++] = (Image) {.w = w, .h = h, .pixels = pixels};
+  return n_images-1;
 #else
+  // Transfer image texture data to the GPU
   unsigned char *pixels_device;
   cudaError_t err;
   if (err = cudaMalloc((void **) &pixels_device, 3*w*h))
@@ -66,8 +78,13 @@ Texture image(const char *img_path) {
   if (err = cudaMemcpy(pixels_device, pixels, 3*w*h, cudaMemcpyHostToDevice))
     printf("TEXTURE: failed to transfer image data from host to device -- %s\n", cudaGetErrorString(err));
   free(pixels);
-  return (Texture) {.type = IMAGE, .w = w, .h = h, .pixels = pixels_device};
+  images[n_images++] = (Image) {.w = w, .h = h, .pixels = pixels_device};
+  return n_images-1;
 #endif
+}
+
+Texture image(int id) {
+  return (Texture) {.type = IMAGE, .image_id = id };
 }
 
 int clampi(int x, int low, int high) {
@@ -79,13 +96,14 @@ int clampi(int x, int low, int high) {
 v3 image_pixel_at(Texture tex, float u, float v) {
   if (tex.type != IMAGE)
     return BLACK;
-  int x = clampi(floorf(u * tex.w), 0, tex.w-1);
-  int y = clampi(floorf(v * tex.h), 0, tex.h-1);
+  Image img = images[tex.image_id];
+  int x = clampi(floorf(u * img.w), 0, img.w-1);
+  int y = clampi(floorf(v * img.h), 0, img.h-1);
 
-  int offset = 3*(y*tex.w + x);
-  float r = tex.pixels[offset] / 255.0;
-  float g = tex.pixels[offset+1] / 255.0;
-  float b = tex.pixels[offset+2] / 255.0;
+  int offset = 3*(y*img.w + x);
+  float r = img.pixels[offset] / 255.0;
+  float g = img.pixels[offset+1] / 255.0;
+  float b = img.pixels[offset+2] / 255.0;
   return (v3){r,g,b};
 }
 

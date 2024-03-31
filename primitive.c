@@ -94,18 +94,15 @@ void add_sdf(v3 p, float size, Material mat, Texture tex) {
   objs[n_objs++] = obj;
 }
 
-void free_textures() {
-  for (int i = 0; i < n_objs; i++) {
-    Primitive obj = objs[i];
-    if (obj.tex.type == IMAGE) {
+void free_images() {
+  for (int i = 0; i < n_images; i++) {
 #if FOR_GPU == 0
-      free(obj.tex.pixels);
+    free(images[i].pixels);
 #else
-      cudaError_t err;
-      if (err = cudaFree(obj.tex.pixels))
-	printf("TEXTURE: failed to free image data -- %s\n", cudaGetErrorString(err));
+    cudaError_t err;
+    if (err = cudaFree(images[i].pixels))
+      printf("TEXTURE: failed to free image data -- %s\n", cudaGetErrorString(err));
 #endif
-    }
   }
 }
 

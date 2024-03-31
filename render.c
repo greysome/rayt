@@ -163,7 +163,7 @@ void render_to(unsigned char *pixels) {
 #pragma acc update device(pix_du,pix_dv)
 #pragma acc update device(cam_u,cam_v)
 
-#pragma acc update device(objs[:n_objs], nodes[:2*n_objs-1])
+#pragma acc update device(objs[:n_objs], nodes[:2*n_objs-1], images[:n_images])
 
   int rows_processed = 0;
 #pragma acc kernels copy(pixels[:width*height*4]) copyin(rows_processed)
@@ -224,7 +224,7 @@ void run() {
   stbi_write_png("output.png", width, height, 4, pixels, width*sizeof(unsigned int));
   free(pixels);
 
-  free_textures();
+  free_images();
 }
 
 #endif

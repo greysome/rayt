@@ -3,9 +3,9 @@
 void demo_materials() {
   sky_color = (v3){.7,.9,1};
   //add_sphere((v3){0,-5000,0}, 5000, dielectric((v3){1,0.6,0.6}, 1.3));
-  add_sphere((v3){0,-5000,0}, 5000, matte(0.2), solid(GREEN));
+  add_sphere((v3){0,-5000,0}, 5000, matte(), solid(GREEN));
   add_sphere((v3){-2,1,3}, 1, dielectric(1.3), solid(WHITE));
-  add_sphere((v3){0,1,3}, 1, matte(0.2), solid(RED));
+  add_sphere((v3){0,1,3}, 1, matte(), solid(RED));
   add_sphere((v3){2,1,3}, 1, metal(1, 0.2), solid((v3){.6,.6,1}));
   add_sphere((v3){0,3,3}, 0.5, light(), solid(scl(WHITE,3)));
   lookfrom = (v3){0,1.5,-3};
@@ -15,7 +15,7 @@ void demo_materials() {
 
 void demo_many_spheres() {
   sky_color = (v3){.7,.9,1};
-  add_sphere((v3){0,-1000,0}, 1000, matte(0.5), solid(scl(WHITE,0.5)));
+  add_sphere((v3){0,-1000,0}, 1000, matte(), solid(scl(WHITE,0.5)));
 
   unsigned int X = 3;
 
@@ -31,7 +31,7 @@ void demo_many_spheres() {
       float b = randunif(&X);
       v3 col = mul((v3){r,g,b},(v3){r,g,b});
       if (choose_mat < 0.8) {
-	add_sphere(center, 0.2, matte(0.5), solid(col));
+	add_sphere(center, 0.2, matte(), solid(col));
       }
       else if (choose_mat < 0.95) {
 	r = r/2.0 + 0.5;
@@ -47,7 +47,7 @@ void demo_many_spheres() {
 
   add_sphere((v3){0,1,0}, 1, dielectric(1.5), solid(WHITE));
   add_sphere((v3){4,1,0}, 1, metal(1, 0), solid((v3){.8,.6,.6}));
-  add_sphere((v3){-4,1,0}, 1, matte(0.5), solid((v3){.4,.2,.1}));
+  add_sphere((v3){-4,1,0}, 1, matte(), solid((v3){.4,.2,.1}));
 
   max_recurse = 10;
   num_samples = 500;
@@ -64,7 +64,7 @@ void demo_textures() {
   height = 500;
   sky_color = (v3){.6,.8,1};
   add_sphere((v3){0,-1000,0}, 1000, matte(), checker_abs(1, WHITE, GRAY));
-  add_sphere((v3){-1,1,1}, 1, matte(), image("assets/earthmap.jpg"));
+  add_sphere((v3){-1,1,1}, 1, matte(), image(load_image("assets/earthmap.jpg")));
   //add_sphere((v3){-1,1,1}, 1, matte(0.5), checker_rel(0.25, BLUE, RED));
   add_sphere((v3){1,1,1}, 1, dielectric(1.5), solid(WHITE));
   lookfrom = (v3){0,2,-7};
@@ -117,7 +117,7 @@ void demo_sdf() {
 }
 
 void setup_scene() {
-  int i = 4;
+  int i = 0;
   switch (i) {
   case 0: demo_materials(); break;
   case 1: demo_many_spheres(); break;
