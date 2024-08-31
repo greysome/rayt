@@ -1,6 +1,9 @@
 import paramiko
 import os
 import time
+from sys import argv
+
+FILENAMES = ['stb_image.h', 'stb_image_write.h', 'stb_ds.h', 'vector.c', 'random.c', 'load_obj.h', 'load_obj.c', 'interval.c', 'aabb.c', 'texture.c', 'material.c', 'primitive.c', 'lbvh_node.c', 'lbvh.c', 'render.c', 'main.c', 'Makefile']
 
 def send_files_via_scp(hostname, port, username, password, local_dir, remote_dir, files):
     ssh_client = paramiko.SSHClient()
@@ -48,18 +51,17 @@ def check_rendering_file(hostname, port, username, password, REMOTE_DIR):
     sftp.close()
     ssh_client.close()
 
-def main():
-    hostname, port, username, password, DIR, REMOTE_DIR, PGCC_PATH = open('.secrets').read().split('\n')
+def dispatch(secrets_file):
+    hostname, port, username, password, DIR, REMOTE_DIR, COMPILER_PATH = open(secrets_file).read().split('\n')
     port = int(port)
-    filenames = ['stb_image.h', 'stb_image_write.h', 'vector.c', 'random.c', 'interval.c', 'aabb.c', 'texture.c', 'material.c', 'primitive.c', 'lbvh_node.c', 'lbvh.c', 'render.c', 'main.c', 'Makefile']
 
     # Send files via SCP
-    send_files_via_scp(hostname, port, username, password, DIR, REMOTE_DIR, filenames)
-    print(f'Transferred {filenames} over')
+    send_files_via_scp(hostname, port, username, password, DIR, REMOTE_DIR, FILENAMES)
+    print(f'Transferred {FILENAMES} over')
     
     # Execute SSH command to make and run the file
     print('Building executable...')
-    command = f'cd {REMOTE_DIR} && PATH={PGCC_PATH}:/usr/bin make gpu'
+    command = f'cd {REMOTE_DIR} && PATH={COMPILER_PATH}:/usr/bin make gpu'
     out, err = execute_ssh_command(hostname, port, username, password, command)
     if 'error' in err.lower():
         print(err)
@@ -86,4 +88,5 @@ def main():
     print('Received output.png from server')
 
 if __name__ == "__main__":
-    main()
+    if argv[1] == 'tch': dispatch('.secrets-tch')
+    elif argv[1] == 'nus': dispatch('.secrets-nus')

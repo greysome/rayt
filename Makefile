@@ -1,35 +1,56 @@
 # VARIABLES ---------------------------------------- 
 
-OBJS = stb_image.o stb_image_write.o
-SRCS = vector.c random.c interval.c aabb.c texture.c material.c primitive.c lbvh_node.c lbvh.c render.c main.c
-CFLAGS = -Wall -Wextra -Wpedantic -Wno-unused-but-set-variable -Wno-unknown-pragmas -Wno-type-limits
-CFLAGS_PLUS_DEBUG = $(CFLAGS) -g -pg -fanalyzer -fsanitize=address -fsanitize=undefined -ftest-coverage
-GPU_FLAGS = -acc -Minfo=accel -Mneginfo -O2
+BUILDDIR = build
+OBJS = $(BUILDDIR)/stb_ds.o $(BUILDDIR)/stb_image.o $(BUILDDIR)/stb_image_write.o $(BUILDDIR)/load_obj.o
+SRCS := $(wildcard *.c)
+CFLAGS = -lm -Wall -Wextra -Wpedantic -Wno-unused-but-set-variable -Wno-unknown-pragmas -Wno-type-limits
+CFLAGS_DEBUG = -g -pg -fanalyzer -fsanitize=address -fsanitize=undefined -ftest-coverage
+GPU_FLAGS = -lcudart -acc -Minfo=accel -Mneginfo -O2
 
-# TARGETS ---------------------------------------- 
+# DEFAULT TARGET ---------------------------------------- 
 
 all: cpu
 
-stb_image.o: stb_image.h
-	cp stb_image.h stb_image.c
-	gcc $(CFLAGS) -c stb_image.c -DSTB_IMAGE_IMPLEMENTATION
-	rm stb_image.c
+# PREBUILT TARGETS ---------------------------------------- 
 
-stb_image_write.o: stb_image_write.h
-	cp stb_image_write.h stb_image_write.c
-	gcc $(CFLAGS) -c stb_image_write.c -DSTB_IMAGE_WRITE_IMPLEMENTATION
-	rm stb_image_write.c
+# Fancy variable that uppercases a wildcard
+UC = $(shell echo '$*' | tr '[:lower:]' '[:upper:]')
+
+$(BUILDDIR)/stb_%.o: external/stb_%.h
+	@echo "----- Building stb_$*.o -----"
+	cd external; \
+	cp stb_$*.h stb_$*.c; \
+	gcc $(CFLAGS) -c stb_$*.c -DSTB_$(UC)_IMPLEMENTATION; \
+	mv stb_$*.o ../$(BUILDDIR); \
+	rm stb_$*.c;
+	@echo -e "\n"
+
+$(BUILDDIR)/load_obj.o: load_obj.c load_obj.h
+	@echo "----- Building load_obj.o -----"	
+	gcc $(CFLAGS) -c load_obj.c -o $@
+	@echo -e "\n"
+
+# USER-SPECIFIED TARGETS ---------------------------------------- 
 
 cpu: CFLAGS += -O2
 
-cpu: $(SRCS) $(OBJS)
-	gcc $(CFLAGS) main.c $(OBJS) -o cpu -lm -DFOR_GPU=0
+cpu: FORCE $(SRCS) $(OBJS)
+	@echo "----- Building rayt, cpu version -----"	
+	gcc $(CFLAGS) main.c $(OBJS) -o rayt-cpu -DFOR_GPU=0
 
-cpu-debug: $(SRCS) $(OBJS)
-	gcc $(CFLAGS_PLUS_DEBUG) main.c $(OBJS) -o cpu-debug -lm -DFOR_GPU=0
+cpu-debug: CFLAGS += $(CFLAGS_DEBUG)
 
-gpu: $(SRCS) $(OBJS)
-	pgcc $(GPU_FLAGS) main.c $(OBJS) -o gpu -lcudart -lm -DFOR_GPU=1
+cpu-debug: FORCE $(SRCS) $(OBJS)
+	@echo "----- Building rayt, cpu debug version -----"	
+	gcc $(CFLAGS) main.c $(OBJS) -o rayt-cpudbg -DFOR_GPU=0
+
+gpu: FORCE $(SRCS) $(OBJS)
+	@echo "----- Building rayt, gpu version -----"	
+	pgcc $(GPU_FLAGS) main.c $(OBJS) -o rayt-gpu -DFOR_GPU=1
+
+FORCE:
+	mkdir -p build
 
 clean:
-	rm -f *.o cpu cpu-debug gpu gmon.out
+	rm -f cpu cpu-debug gpu gmon.out *.gcno; \
+	rm -rf build;

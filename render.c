@@ -7,7 +7,7 @@
 
 #include <math.h>
 #include <stdio.h>
-#include "stb_image_write.h"
+#include "external/stb_image_write.h"
 #include "vector.c"
 #include "random.c"
 #include "texture.c"
@@ -67,7 +67,8 @@ v3 get_color(v3 origin, v3 dir, unsigned int *X) {
   for (; depth < max_recurse; depth++) {
     // Obtain closest intersection
     HitRecord hr;
-    get_closest_intersection(cur_origin, cur_dir, &hr);
+    if (n_objs > 0) get_closest_intersection(cur_origin, cur_dir, &hr);
+    else hr.t = INFINITY;
 
     // If it is the sky, the rays stops bouncing and we proceed to mix together
     // all the color contributions
@@ -163,7 +164,7 @@ void render_to(unsigned char *pixels) {
 #pragma acc update device(pix_du,pix_dv)
 #pragma acc update device(cam_u,cam_v)
 
-#pragma acc update device(objs[:n_objs], nodes[:2*n_objs-1], images[:n_images])
+#pragma acc update device(n_objs, objs[:n_objs], nodes[:2*n_objs-1], images[:n_images])
 
   int rows_processed = 0;
 #pragma acc kernels copy(pixels[:width*height*4]) copyin(rows_processed)
@@ -198,24 +199,7 @@ void run() {
 
   // Some constants require computation
   initialize_constants();
-  build_lbvh();
-
-  /*
-  int n = arrlen(objs);
-  for (int i = 0; i < 2*n-1; i++) {
-    lbvh_node node = nodes[i];
-    if (node.is_leaf) {
-      printf("Leaf(obj=%d, bbox=", node.idx_obj);
-      paabb(node.aabb);
-      printf("\n");
-    }
-    else {
-      printf("Intermediate(split=%d, L=%d, R=%d, bbox=", node.idx_split, node.idx_left, node.idx_right);
-      paabb(node.aabb);
-      printf("\n");
-    }
-  }
-  */
+  if (n_objs > 0) build_lbvh();
 
   assert(max_recurse <= MAX_MAX_RECURSE);
 
@@ -223,8 +207,19 @@ void run() {
   render_to(pixels);
   stbi_write_png("output.png", width, height, 4, pixels, width*sizeof(unsigned int));
   free(pixels);
+}
 
-  free_images();
+void cleanup() {
+  // Free images
+  for (int i = 0; i < n_images; i++) {
+#if FOR_GPU == 0
+    free(images[i].pixels);
+#else
+    cudaError_t err;
+    if (err = cudaFree(images[i].pixels))
+      printf("TEXTURE: failed to free image data -- %s\n", cudaGetErrorString(err));
+#endif
+  }
 }
 
 #endif

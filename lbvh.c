@@ -160,7 +160,7 @@ void get_closest_intersection(v3 origin, v3 dir, HitRecord *hr) {
   // The values which will be written to the pointers
   float t_closest = INFINITY;
   Primitive obj_closest;
-  float u_closest, v_closest;
+  float u_closest = 0, v_closest = 0;
 
   // Internal variables
   lbvh_node stack[64];

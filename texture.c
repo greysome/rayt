@@ -5,8 +5,8 @@
 #include <cuda_runtime.h>
 #endif
 
-#include "stb_image.h"
 #include <stdlib.h>
+#include "external/stb_image.h"
 #include "vector.c"
 
 typedef enum {

@@ -1,10 +1,8 @@
-#ifndef _UTIL_C
-#define _UTIL_C
+#ifndef _VECTOR_C
+#define _VECTOR_C
 
 #include <math.h>
 #include <stdio.h>
-
-#define PI 3.141592653589793238462643383279502884197
 
 typedef struct {
   float x;

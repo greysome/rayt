@@ -8,13 +8,13 @@
 #include <math.h>
 #include <stdio.h>
 #include <assert.h>
-#define STB_DS_IMPLEMENTATION
 #include "vector.c"
-#include "random.c"
 #include "aabb.c"
 #include "material.c"
+#include "load_obj.h"
 
 #define NO_SOL -INFINITY
+#define PI 3.141592653589793238462643383279502884197
  
 typedef enum {
   SPHERE, QUAD, TRIANGLE, SDF
@@ -54,10 +54,9 @@ typedef struct {
 
 
 #define MAX_OBJS 100000
-
 Primitive objs[MAX_OBJS];
 int n_objs = 0;
-#pragma acc declare create(objs[:MAX_OBJS])
+#pragma acc declare create(n_objs, objs[:MAX_OBJS])
 
 void add_sphere(v3 pos, float r, Material mat, Texture tex) {
   Primitive obj = (Primitive){.type = SPHERE, .mat = mat, .tex = tex, .pos = pos, .r = r};
@@ -92,18 +91,6 @@ void add_sdf(v3 p, float size, Material mat, Texture tex) {
   Primitive obj = (Primitive){.type = SDF, .mat = mat, .tex = tex, .pos = p,
 			      .size = size};
   objs[n_objs++] = obj;
-}
-
-void free_images() {
-  for (int i = 0; i < n_images; i++) {
-#if FOR_GPU == 0
-    free(images[i].pixels);
-#else
-    cudaError_t err;
-    if (err = cudaFree(images[i].pixels))
-      printf("TEXTURE: failed to free image data -- %s\n", cudaGetErrorString(err));
-#endif
-  }
 }
 
 v3 get_sdf_coords(Primitive obj, v3 p) {
