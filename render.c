@@ -15,56 +15,48 @@
 #include "primitive.c"
 #include "lbvh.c"
 
-// The maximum that max_recurse can be, lol
-// The reason this is needed is because max_recurse isn't known at compile time,
-// and VLAs as local variables aren't supported by pgcc...
-#define MAX_MAX_RECURSE 64
+// The maximum that RenderParams.max_bounces can be, lol
+// The reason is because I originally wanted a VLA with size
+// RenderParams.max_bounces in get_color(), but this is not suppoted
+// by pgcc...
+#define MAX_MAX_BOUNCES 64
 
-v3 sky_color;
+typedef struct {
+  v3 sky_color; 
+  int w, h;
 
-int stack_size = 1024;
-int width = 1000;
-int height = 700;
+  int max_bounces;
+  int samples_per_pixel;
+  v3 lookfrom;
+  v3 lookat;
+  float vfov; // 0-180 degrees
+  float defocus_angle;
+  float defocus_radius;
+  float focal_len;
+  v3 viewport_topleft; // Viewport's northwest
+  v3 pixel_du, pixel_dv; // Viewport coordinate vectors, pixel-wise
+  v3 cam_u, cam_v; // Camera coordinate vectors
+} RenderParams;
 
-int max_recurse = 10;
-int num_samples = 4; // How many times to compute per pixel
-v3 lookfrom = {0,0,0};
-v3 lookat = {0,5,0};
-float vfov = 45.0; // An angle from 0 to 180 degrees
-float defocus_angle = 0;
-float defocus_radius;
-float focal_len;
-v3 vp_nw; // Position of top-left of viewport
-v3 pix_du, pix_dv; // Viewport coordinate vectors, pixel-wise
-v3 cam_u, cam_v; // Camera coordinate vectors
 
-#pragma acc declare create(width,height)
-#pragma acc declare create(sky_color)
-#pragma acc declare create(max_recurse)
-#pragma acc declare create(num_samples)
-#pragma acc declare create(lookfrom,lookat)
-#pragma acc declare create(vfov)
-#pragma acc declare create(defocus_angle,defocus_radius)
-#pragma acc declare create(focal_len)
-#pragma acc declare create(vp_nw)
-#pragma acc declare create(pix_du,pix_dv)
-#pragma acc declare create(cam_u,cam_v)
 
 v3 gamma_correct(v3 col) {
   return (v3) {sqrtf(col.x), sqrtf(col.y), sqrtf(col.z)};
 }
 
-v3 get_color(v3 origin, v3 dir, unsigned int *X) {
+
+
+v3 get_color(v3 origin, v3 dir, unsigned int *X, RenderParams *params) {
   v3 cur_origin = origin;
   v3 cur_dir = dir;
   v3 cur_color = WHITE;
 
   // Imitating a stack. I didn't use recursion because of the GPU's small stack.
   int depth = 0;
-  Material materials[MAX_MAX_RECURSE];
-  v3 tex_colors[MAX_MAX_RECURSE];
+  Material materials[MAX_MAX_BOUNCES];
+  v3 tex_colors[MAX_MAX_BOUNCES];
 
-  for (; depth < max_recurse; depth++) {
+  for (; depth < params->max_bounces; depth++) {
     // Obtain closest intersection
     HitRecord hr;
     if (n_objs > 0) get_closest_intersection(cur_origin, cur_dir, &hr);
@@ -73,7 +65,7 @@ v3 get_color(v3 origin, v3 dir, unsigned int *X) {
     // If it is the sky, the rays stops bouncing and we proceed to mix together
     // all the color contributions
     if (hr.t == INFINITY) {
-      cur_color = sky_color;
+      cur_color = params->sky_color;
       depth--;
       goto fold_stack;
     }
@@ -105,82 +97,87 @@ fold_stack:
   return cur_color;
 }
 
+
+
 // The pixels are located at lattice points (x+0.5, y+0.5)
-v3 get_pix_pos(int x, int y) {
-  return add(vp_nw, add(scl(pix_du, x+0.5),
-			scl(pix_dv, y+0.5)));
+v3 get_pix_pos(int x, int y, RenderParams *params) {
+  return add(params->viewport_topleft,
+	     add(scl(params->pixel_du, x+0.5),
+		 scl(params->pixel_dv, y+0.5)));
 }
 
-v3 compute_pixel_color(int i, int j, unsigned int *X) {
-  v3 avg_col = {0,0,0};
-  for (int k = 0; k < num_samples; k++) {
-    v2 pix_offset = randsquare(X);
-    v2 defocus_offset = scl2(randdisk(X), defocus_radius);
-    v3 pix_pos = get_pix_pos(j + 0.5 + pix_offset.x, i + 0.5 + pix_offset.y);
 
-    v3 defocused_lookfrom = add(lookfrom,
-				add(scl(cam_u, defocus_offset.x),
-				    scl(cam_v, defocus_offset.y)));
+
+v3 compute_pixel_color(int i, int j, unsigned int *X, RenderParams *params) {
+  v3 avg_col = {0,0,0};
+  for (int k = 0; k < params->samples_per_pixel; k++) {
+    v2 pix_offset = randsquare(X);
+    v2 defocus_offset = scl2(randdisk(X), params->defocus_radius);
+    v3 pix_pos = get_pix_pos(j + 0.5 + pix_offset.x,
+			     i + 0.5 + pix_offset.y,
+			     params);
+
+    v3 defocused_lookfrom = add(params->lookfrom,
+				add(scl(params->cam_u, defocus_offset.x),
+				    scl(params->cam_v, defocus_offset.y)));
     v3 dir = sub(pix_pos, defocused_lookfrom);
 
-    avg_col = add(avg_col, get_color(defocused_lookfrom, dir, X));
+    avg_col = add(avg_col, get_color(defocused_lookfrom, dir, X, params));
   }
-  avg_col = gamma_correct(scl(avg_col, 1.0/num_samples));
+  avg_col = gamma_correct(scl(avg_col, 1.0/params->samples_per_pixel));
   return avg_col;
 }
 
-void initialize_constants() {
-  focal_len = dist(lookat, lookfrom);
-  defocus_radius = 2 * focal_len * tanf(defocus_angle/360*2*PI / 2);
+
+
+void initialize_constants(RenderParams *params) {
+  params->focal_len = dist(params->lookat, params->lookfrom);
+  params->defocus_radius = 2 * params->focal_len * tanf(params->defocus_angle/360*2*PI
+							/ 2);
 
   v3 cam_vup = {0,1,0};
   // Camera basis vectors
-  v3 cam_w = normalize(sub(lookat, lookfrom)); // Into the viewport
-  cam_u = normalize(cross(cam_vup, cam_w)); // Rigobj across the viewport
-  cam_v = cross(cam_w, cam_u); // Up the viewport
+  v3 cam_w = normalize(sub(params->lookat, params->lookfrom)); // Into the viewport
+  params->cam_u = normalize(cross(cam_vup, cam_w)); // Right across the viewport
+  params->cam_v = cross(cam_w, params->cam_u); // Up the viewport
 
   // Viewport
-  float vp_h = 2 * tanf(vfov/360*2*PI / 2) * focal_len;
-  float vp_w = vp_h * (float) width / height;
-  v3 vp_u = scl(cam_u, vp_w);
-  v3 vp_v = scl(cam_v, -vp_h);
-  vp_nw = add(lookfrom,
-		 add(scl(cam_w, focal_len),
-		     add(scl(cam_u, -vp_w/2), scl(cam_v, vp_h/2))));
-  pix_du = scl(vp_u, 1.0/width);
-  pix_dv = scl(vp_v, 1.0/height);
+  float vp_h = 2 * tanf(params->vfov/360*2*PI / 2) * params->focal_len;
+  float vp_w = vp_h * (float) params->w / params->h;
+  v3 vp_u = scl(params->cam_u, vp_w);
+  v3 vp_v = scl(params->cam_v, -vp_h);
+  params->viewport_topleft = add(params->lookfrom,
+			 add(scl(cam_w, params->focal_len),
+			     add(scl(params->cam_u, -vp_w/2),
+				 scl(params->cam_v, vp_h/2))));
+  params->pixel_du = scl(vp_u, 1.0/params->w);
+  params->pixel_dv = scl(vp_v, 1.0/params->h);
 }
 
-void render_to(unsigned char *pixels) {
-#pragma acc update device(sky_color)
-#pragma acc update device(width,height)
-#pragma acc update device(max_recurse)
-#pragma acc update device(num_samples)
-#pragma acc update device(lookfrom,lookat)
-#pragma acc update device(vfov)
-#pragma acc update device(defocus_angle,defocus_radius)
-#pragma acc update device(focal_len)
-#pragma acc update device(vp_nw)
-#pragma acc update device(pix_du,pix_dv)
-#pragma acc update device(cam_u,cam_v)
 
+
+void render_to(unsigned char *pixels, RenderParams *params) {
+#pragma acc update device(rp)
 #pragma acc update device(n_objs, objs[:n_objs], nodes[:2*n_objs-1], images[:n_images])
-
   int rows_processed = 0;
-#pragma acc kernels copy(pixels[:width*height*4]) copyin(rows_processed)
+#pragma acc kernels copy(pixels[:w*h*4]) copyin(rows_processed)
+
+  // Main loop
 #pragma acc loop independent
-  for (int i = 0; i < height; i++) {
+  for (int i = 0; i < params->h; i++) {
+
 #pragma acc loop independent
-    for (int j = 0; j < width; j++) {
-      unsigned int X = i*width + j;
-      v3 col = clampcol(compute_pixel_color(i, j, &X));
-      int idx = 4*(i*width + j);
+    for (int j = 0; j < params->w; j++) {
+      unsigned int X = i * params->w + j;
+      v3 col = clampcol(compute_pixel_color(i, j, &X, params));
+      int idx = 4 * (i*params->w + j);
       pixels[idx] = col.x * 255;
       pixels[idx+1] = col.y * 255;
       pixels[idx+2] = col.z * 255;
       pixels[idx+3] = 255;
     }
     rows_processed++;
+
 #if FOR_GPU == 0
     if (rows_processed % 10 == 0)
       printf("%d rows processed\n", rows_processed);
@@ -188,26 +185,21 @@ void render_to(unsigned char *pixels) {
   }
 }
 
-void run() {
-  // Increase GPU stack size if needed
-#if FOR_GPU == 1
-  cudaDeviceSetLimit(cudaLimitStackSize, stack_size);
-  size_t x;
-  cudaDeviceGetLimit(&x, cudaLimitStackSize);
-  printf("Stack size = %u\n", (unsigned)x);
-#endif
 
-  // Some constants require computation
-  initialize_constants();
+
+void run(RenderParams *params) {
+  assert(params->max_bounces <= MAX_MAX_BOUNCES);
+  
+  initialize_constants(params);
   if (n_objs > 0) build_lbvh();
 
-  assert(max_recurse <= MAX_MAX_RECURSE);
-
-  unsigned char *pixels = malloc(width*height*4);
-  render_to(pixels);
-  stbi_write_png("output.png", width, height, 4, pixels, width*sizeof(unsigned int));
+  unsigned char *pixels = malloc(params->w * params->h * 4);
+  render_to(pixels, params);
+  stbi_write_png("output.png", params->w, params->h, 4, pixels, params->w * sizeof(unsigned int));
   free(pixels);
 }
+
+
 
 void cleanup() {
   // Free images

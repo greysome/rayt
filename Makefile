@@ -1,5 +1,6 @@
 # VARIABLES ---------------------------------------- 
 
+sceneidx = 0
 BUILDDIR = build
 OBJS = $(BUILDDIR)/stb_ds.o $(BUILDDIR)/stb_image.o $(BUILDDIR)/stb_image_write.o $(BUILDDIR)/load_obj.o
 SRCS := $(wildcard *.c)
@@ -35,18 +36,18 @@ $(BUILDDIR)/load_obj.o: load_obj.c load_obj.h
 cpu: CFLAGS += -O2
 
 cpu: FORCE $(SRCS) $(OBJS)
-	@echo "----- Building rayt, cpu version -----"	
-	gcc $(CFLAGS) main.c $(OBJS) -o rayt-cpu -DFOR_GPU=0
+	@echo "----- Building rayt, cpu version (scene $(sceneidx)) -----"	
+	gcc $(CFLAGS) main.c $(OBJS) -o rayt-cpu -DFOR_GPU=0 -DSCENEIDX=$(sceneidx)
 
 cpu-debug: CFLAGS += $(CFLAGS_DEBUG)
 
 cpu-debug: FORCE $(SRCS) $(OBJS)
-	@echo "----- Building rayt, cpu debug version -----"	
-	gcc $(CFLAGS) main.c $(OBJS) -o rayt-cpudbg -DFOR_GPU=0
+	@echo "----- Building rayt, cpu debug version (scene $(sceneidx)) -----"	
+	gcc $(CFLAGS) main.c $(OBJS) -o rayt-cpudbg -DFOR_GPU=0 -DSCENEIDX=$(sceneidx)
 
 gpu: FORCE $(SRCS) $(OBJS)
-	@echo "----- Building rayt, gpu version -----"	
-	pgcc $(GPU_FLAGS) main.c $(OBJS) -o rayt-gpu -DFOR_GPU=1
+	@echo "----- Building rayt, gpu version (scene $(sceneidx)) -----"	
+	pgcc $(GPU_FLAGS) main.c $(OBJS) -o rayt-gpu -DFOR_GPU=1 -DSCENEIDX=$(sceneidx)
 
 FORCE:
 	mkdir -p build
