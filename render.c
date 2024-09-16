@@ -1,10 +1,6 @@
 #ifndef _RENDER_C
 #define _RENDER_C
 
-#if FOR_GPU == 1
-#include <cuda_runtime.h>
-#endif
-
 #include <math.h>
 #include <stdio.h>
 #include "external/stb_image_write.h"
@@ -31,8 +27,11 @@ typedef struct {
   v3 lookat;
   float vfov; // 0-180 degrees
   float defocus_angle;
-  float defocus_radius;
+
+  // These variables are filled in by initialize_remaining_params()
+
   float focal_len;
+  float defocus_radius;
   v3 viewport_topleft; // Viewport's northwest
   v3 pixel_du, pixel_dv; // Viewport coordinate vectors, pixel-wise
   v3 cam_u, cam_v; // Camera coordinate vectors
@@ -46,7 +45,7 @@ v3 gamma_correct(v3 col) {
 
 
 
-v3 get_color(v3 origin, v3 dir, unsigned int *X, RenderParams *params) {
+v3 get_color(RenderParams *params, RenderScene *scene, v3 origin, v3 dir, unsigned int *X) {
   v3 cur_origin = origin;
   v3 cur_dir = dir;
   v3 cur_color = WHITE;
@@ -59,8 +58,10 @@ v3 get_color(v3 origin, v3 dir, unsigned int *X, RenderParams *params) {
   for (; depth < params->max_bounces; depth++) {
     // Obtain closest intersection
     HitRecord hr;
-    if (n_objs > 0) get_closest_intersection(cur_origin, cur_dir, &hr);
-    else hr.t = INFINITY;
+    if (arrlen(scene->prims) > 0)
+      get_closest_intersection(scene, cur_origin, cur_dir, &hr);
+    else
+      hr.t = INFINITY;
 
     // If it is the sky, the rays stops bouncing and we proceed to mix together
     // all the color contributions
@@ -71,12 +72,12 @@ v3 get_color(v3 origin, v3 dir, unsigned int *X, RenderParams *params) {
     }
 
     // Add material and texture color to the stack
-    materials[depth] = hr.obj.mat;
-    tex_colors[depth] = get_texture_color(hr.obj.tex, hr.u, hr.v, hr.p);
+    materials[depth] = hr.prim.mat;
+    tex_colors[depth] = get_texture_color(scene, hr.prim.tex, hr.u, hr.v, hr.p);
 
-    v3 normal = get_normal(hr.obj, hr.p);
+    v3 normal = get_normal(hr.prim, hr.p);
     v3 out_dir;
-    interact_with_material(hr.obj.mat, normal, cur_dir, &out_dir, X);
+    interact_with_material(hr.prim.mat, normal, cur_dir, &out_dir, X);
 
     // Offset intersection point slightly to prevent shadow acne
     hr.p = ray_at(hr.p, out_dir, 0.01);
@@ -86,7 +87,7 @@ v3 get_color(v3 origin, v3 dir, unsigned int *X, RenderParams *params) {
     // If it is a light source, rays also stops bouncing
     // The light's material is already added onto the material stack, so we
     // don't have to set cur_color
-    if (hr.obj.mat.type == LIGHT)
+    if (hr.prim.mat.type == LIGHT)
       goto fold_stack;
   }
   goto fold_stack;
@@ -100,7 +101,7 @@ fold_stack:
 
 
 // The pixels are located at lattice points (x+0.5, y+0.5)
-v3 get_pix_pos(int x, int y, RenderParams *params) {
+v3 get_pix_pos(RenderParams *params, int x, int y) {
   return add(params->viewport_topleft,
 	     add(scl(params->pixel_du, x+0.5),
 		 scl(params->pixel_dv, y+0.5)));
@@ -108,21 +109,21 @@ v3 get_pix_pos(int x, int y, RenderParams *params) {
 
 
 
-v3 compute_pixel_color(int i, int j, unsigned int *X, RenderParams *params) {
+v3 compute_pixel_color(RenderParams *params, RenderScene *scene, int i, int j, unsigned int *X) {
   v3 avg_col = {0,0,0};
   for (int k = 0; k < params->samples_per_pixel; k++) {
     v2 pix_offset = randsquare(X);
     v2 defocus_offset = scl2(randdisk(X), params->defocus_radius);
-    v3 pix_pos = get_pix_pos(j + 0.5 + pix_offset.x,
-			     i + 0.5 + pix_offset.y,
-			     params);
+    v3 pix_pos = get_pix_pos(params,
+			     j + 0.5 + pix_offset.x,
+			     i + 0.5 + pix_offset.y);
 
     v3 defocused_lookfrom = add(params->lookfrom,
 				add(scl(params->cam_u, defocus_offset.x),
 				    scl(params->cam_v, defocus_offset.y)));
     v3 dir = sub(pix_pos, defocused_lookfrom);
 
-    avg_col = add(avg_col, get_color(defocused_lookfrom, dir, X, params));
+    avg_col = add(avg_col, get_color(params, scene, defocused_lookfrom, dir, X));
   }
   avg_col = gamma_correct(scl(avg_col, 1.0/params->samples_per_pixel));
   return avg_col;
@@ -130,7 +131,7 @@ v3 compute_pixel_color(int i, int j, unsigned int *X, RenderParams *params) {
 
 
 
-void initialize_constants(RenderParams *params) {
+void initialize_remaining_params(RenderParams *params) {
   params->focal_len = dist(params->lookat, params->lookfrom);
   params->defocus_radius = 2 * params->focal_len * tanf(params->defocus_angle/360*2*PI
 							/ 2);
@@ -156,20 +157,14 @@ void initialize_constants(RenderParams *params) {
 
 
 
-void render_to(unsigned char *pixels, RenderParams *params) {
-#pragma acc update device(rp)
-#pragma acc update device(n_objs, objs[:n_objs], nodes[:2*n_objs-1], images[:n_images])
+void render(RenderParams *params, RenderScene *scene, unsigned char *pixels) {
   int rows_processed = 0;
-#pragma acc kernels copy(pixels[:w*h*4]) copyin(rows_processed)
 
   // Main loop
-#pragma acc loop independent
   for (int i = 0; i < params->h; i++) {
-
-#pragma acc loop independent
     for (int j = 0; j < params->w; j++) {
       unsigned int X = i * params->w + j;
-      v3 col = clampcol(compute_pixel_color(i, j, &X, params));
+      v3 col = clampcol(compute_pixel_color(params, scene, i, j, &X));
       int idx = 4 * (i*params->w + j);
       pixels[idx] = col.x * 255;
       pixels[idx+1] = col.y * 255;
@@ -178,40 +173,37 @@ void render_to(unsigned char *pixels, RenderParams *params) {
     }
     rows_processed++;
 
-#if FOR_GPU == 0
     if (rows_processed % 10 == 0)
       printf("%d rows processed\n", rows_processed);
-#endif
   }
 }
 
 
 
-void run(RenderParams *params) {
+void run(RenderParams *params, RenderScene *scene) {
   assert(params->max_bounces <= MAX_MAX_BOUNCES);
   
-  initialize_constants(params);
-  if (n_objs > 0) build_lbvh();
+  initialize_remaining_params(params);
+  if (arrlen(scene->prims) > 0)
+    build_lbvh(scene);
 
   unsigned char *pixels = malloc(params->w * params->h * 4);
-  render_to(pixels, params);
+  render(params, scene, pixels);
   stbi_write_png("output.png", params->w, params->h, 4, pixels, params->w * sizeof(unsigned int));
   free(pixels);
 }
 
 
 
-void cleanup() {
+void cleanup(RenderScene *scene) {
   // Free images
-  for (int i = 0; i < n_images; i++) {
-#if FOR_GPU == 0
-    free(images[i].pixels);
-#else
-    cudaError_t err;
-    if (err = cudaFree(images[i].pixels))
-      printf("TEXTURE: failed to free image data -- %s\n", cudaGetErrorString(err));
-#endif
+  for (int i = 0; i < arrlen(scene->images); i++) {
+    free(scene->images[i].pixels);
   }
+  free(scene->images);
+  // WHY INVALID POINTER
+  //free(scene->prims);
+  free(scene->nodes);
 }
 
 #endif

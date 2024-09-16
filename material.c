@@ -6,24 +6,6 @@
 #include "random.c"
 #include "texture.c"
 
-typedef enum {
-  MATTE, METAL, DIELECTRIC, LIGHT
-} MaterialType;
-
-typedef struct {
-  MaterialType type;
-  union {
-    /* For metal */
-    struct {
-      float reflectivity; // From 0 to 1, how reflective
-      float fuzziness; // How fuzzy do the reflections look
-    };
-
-    /* For dielectrics */
-    float eta; // Refractive index
-  };
-} Material;
-
 Material matte() {
   return (Material) {.type = MATTE};
 }
@@ -40,11 +22,13 @@ Material light() {
   return (Material) {.type = LIGHT};
 }
 
+
 static inline float dielectric_reflectance(float cos_theta, float eta_ratio) {
   float r0 = (1-eta_ratio) / (1+eta_ratio);
   r0 *= r0;
   return r0 + (1-r0) * powf(1-cos_theta, 5);
 }
+
 
 void interact_with_material(Material mat, v3 normal, v3 in_dir, v3 *out_dir, unsigned int *X) {
   if (mat.type == MATTE) {
@@ -75,6 +59,7 @@ void interact_with_material(Material mat, v3 normal, v3 in_dir, v3 *out_dir, uns
       *out_dir = refract(in_dir, normal, eta_ratio);
   }
 }
+
 
 static inline v3 get_reflected_color(Material mat, v3 tex_color, v3 in_color) {
   switch (mat.type) {

@@ -5,6 +5,7 @@
 
 #define v3 _v3
 
+
 typedef enum {
   NEWLINE, END, FLOAT, INT, STR, SLASH,
 
@@ -18,6 +19,7 @@ typedef enum {
   NI, DISSOLVE, ILLUM
 } TokenType;
 
+
 typedef struct {
   int line;
   TokenType type;
@@ -27,6 +29,7 @@ typedef struct {
     char *s;
   };
 } Token;
+
 
 typedef struct {
   bool debug;
@@ -39,6 +42,7 @@ typedef struct {
   MtlParams *mtls; int curmtl;
   Face *faces;
 } ParseState;
+
 
 // ------------------------------------------------------------ 
 // LEXER
@@ -80,9 +84,13 @@ bool lex_matchstr(char *s, ParseState *ps) {
   return true;
 }
 
+
+
+
 #define lex_matchthenspace(s, ps) \
   lex_matchstr(s " ", ps) || lex_matchstr(s "\t", ps) || \
   lex_matchstr(s "\n", ps) || lex_matchstr(s "\r", ps)
+
 
 void lex_addothertoken(TokenType type, ParseState *ps) {
   switch (type) {
@@ -137,6 +145,7 @@ void lex_addstr(char *s, ParseState *ps) {
   arrpush(ps->tokens, tok);
 }
 
+
 void lex_num(ParseState *ps) {
   bool first_char = true;
   bool saw_minus = false;
@@ -190,9 +199,11 @@ void lex_num(ParseState *ps) {
   lex_addfloat((intpart + ((float) fracpart) / tenpow) * (saw_minus ? -1 : 1), ps);
 }
 
+
 static inline bool _allowed_in_str(char c) {
   return isalpha(c) || isdigit(c) || c == '_' || c == '-' || c == '.';
 }
+
 
 void lex_str(ParseState *ps) {
   char s[LEX_STR_MAX]; int n = 0;
@@ -206,6 +217,7 @@ void lex_str(ParseState *ps) {
   strncpy(s_heap, s, n);
   lex_addstr(s_heap, ps);
 }
+
 
 void lex_scantoken_obj(ParseState *ps) {
   char c = lex_advance(ps);
@@ -281,6 +293,7 @@ void lex_scantoken_obj(ParseState *ps) {
   }
 }
 
+
 void lex_scantoken_mtl(ParseState *ps) {
   char c = lex_advance(ps);
   switch (c) {
@@ -347,9 +360,11 @@ void lex_scantoken_mtl(ParseState *ps) {
   }
 }
 
+
 // ------------------------------------------------------------ 
 // PARSER
 // ------------------------------------------------------------ 
+
 
 #define parse_error(fmt, ps, ...)					\
   { printf("Parsing error at %s:%d -- " fmt "\n", (ps)->filename, (ps)->tokens[ps->curtoken].line __VA_OPT__(,) __VA_ARGS__); exit(1); }
@@ -373,6 +388,7 @@ bool parse_matchtoken(TokenType type, ParseState *ps) {
 bool parse_newlineorend(ParseState *ps) {
   return parse_matchtoken(NEWLINE, ps) || parse_matchtoken(END, ps);
 }
+
 
 v3 parse_two_floats(ParseState *ps) {
   float x, y;
@@ -398,6 +414,7 @@ v3 parse_two_floats(ParseState *ps) {
 
   return v;
 }
+
 
 v3 parse_three_floats(ParseState *ps) {
   float x, y, z;
@@ -429,6 +446,7 @@ v3 parse_three_floats(ParseState *ps) {
   return v;
 }
 
+
 void parse_vertex(ParseState *ps) {
   debug("PARSING VERTEX\n", ps);
   arrpush(ps->vertices, parse_three_floats(ps));
@@ -444,6 +462,7 @@ void parse_vertexnormal(ParseState *ps) {
   while (parse_advance(ps).type != NEWLINE) {};
 }
 
+
 static inline int _get_absolute_idx(int idx, ParseState *ps) {
   if (idx < 0) {
     if (arrlen(ps->vertices)+idx < 0)
@@ -457,6 +476,7 @@ static inline int _get_absolute_idx(int idx, ParseState *ps) {
     return idx;
   }
 }
+
 
 void parse_face(ParseState *ps) {
   debug("PARSING FACE\n", ps);
@@ -512,6 +532,7 @@ void parse_face(ParseState *ps) {
   }
 }
 
+
 void parse_group(ParseState *ps) {
   debug("PARSING GROUP\n", ps);
   while (parse_advance(ps).type != NEWLINE) {};
@@ -530,6 +551,7 @@ void parse_smoothshade(ParseState *ps) {
 // Defined later
 void read_mtl(const char *filename, ParseState *ps);
 
+
 void parse_mtllib(ParseState *ps) {
   debug("PARSING MTLLIB\n", ps);
   Token tok = ps->tokens[ps->curtoken];
@@ -537,6 +559,7 @@ void parse_mtllib(ParseState *ps) {
   read_mtl(tok.s, ps);
   while (parse_advance(ps).type != NEWLINE) {};
 }
+
 
 void parse_usemtl(ParseState *ps) {
   debug("PARSING USEMTL\n", ps);
@@ -556,6 +579,7 @@ void parse_usemtl(ParseState *ps) {
   while (parse_advance(ps).type != NEWLINE) {};
 }
 
+
 Face *parse_obj(ParseState *ps) {
   while (ps->curtoken < arrlen(ps->tokens) && ps->tokens[ps->curtoken].type != END) {
     if (parse_matchtoken(VERTEX, ps)) parse_vertex(ps);
@@ -572,6 +596,7 @@ Face *parse_obj(ParseState *ps) {
   return ps->faces;
 }
 
+
 void parse_newmtl(MtlParams *mtl, ParseState *ps) {
   debug("PARSING NEWMTL\n", ps);
   Token tok = parse_advance(ps);
@@ -579,6 +604,7 @@ void parse_newmtl(MtlParams *mtl, ParseState *ps) {
   mtl->name = tok.s;
   while (parse_advance(ps).type != NEWLINE) {};
 }
+
 
 void parse_Kx(MtlParams *mtl, char type, ParseState *ps) {
   assert(type == 'a' || type == 'd' || type == 's');
@@ -588,6 +614,7 @@ void parse_Kx(MtlParams *mtl, char type, ParseState *ps) {
   else if (type == 'd') mtl->Kd = v;
   else if (type == 's') mtl->Ks = v;
 }
+
 
 void parse_map(MtlParams *mtl, char type, ParseState *ps) {
   assert(type == 'a' || type == 'd' || type == 's' || type == 'N');
@@ -602,6 +629,7 @@ void parse_map(MtlParams *mtl, char type, ParseState *ps) {
 
   while (parse_advance(ps).type != NEWLINE) {};
 }
+
 
 void parse_Nx(MtlParams *mtl, char type, ParseState *ps) {
   assert(type == 's' || type == 'i');
@@ -618,6 +646,7 @@ void parse_Nx(MtlParams *mtl, char type, ParseState *ps) {
   while (parse_advance(ps).type != NEWLINE) {};
 }
 
+
 void parse_d(MtlParams *mtl, ParseState *ps) {
   debug("PARSING D\n", ps);
   Token tok = parse_advance(ps);
@@ -627,6 +656,7 @@ void parse_d(MtlParams *mtl, ParseState *ps) {
   while (parse_advance(ps).type != NEWLINE) {};
 }
 
+
 void parse_illum(MtlParams *mtl, ParseState *ps) {
   debug("PARSING ILLUM\n", ps);
   Token tok = parse_advance(ps);
@@ -635,6 +665,7 @@ void parse_illum(MtlParams *mtl, ParseState *ps) {
   mtl->illum = tok.i;
   while (parse_advance(ps).type != NEWLINE) {};
 }
+
 
 MtlParams *parse_mtl(ParseState *ps) {
   MtlParams *mtls = NULL; int n = -1;
@@ -684,6 +715,7 @@ void read_mtl(const char *filename, ParseState *ps) {
   arrfree(mtls);
   arrfree(mtl_ps.tokens);
 }
+
 
 Face *load_obj(const char *filename) {
   FILE *fp = fopen(filename, "r");

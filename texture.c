@@ -8,56 +8,45 @@
 #include <stdlib.h>
 #include "external/stb_image.h"
 #include "vector.c"
-
-typedef enum {
-  SOLID, CHECKER_ABS, CHECKER_REL, IMAGE
-} TextureType;
-
-typedef struct {
-  int w, h;
-  unsigned char *pixels;
-} Image;
-
-typedef struct {
-  TextureType type;
-  union {
-    /* For solids */
-    v3 color;
-
-    /* For checker */
-    struct {
-      float size;
-      v3 color_even;
-      v3 color_odd;
-    };
-
-    /* For image */
-    int image_id;
-  };
-} Texture;
+#include "scene.c"
 
 
-#define MAX_IMAGES 1000
 #define NO_IMAGE -1
-
-int n_images = 0;
-Image images[MAX_IMAGES];
-#pragma acc declare create(images[:MAX_IMAGES])
 
 
 Texture solid(v3 color) {
-  return (Texture) {.type = SOLID, .color = color};
+  Texture tex;
+  tex.type = SOLID;
+  tex.color = color;
+  return tex;
 }
+
 
 Texture checker_abs(float size, v3 color_even, v3 color_odd) {
-  return (Texture) {.type = CHECKER_ABS, .size = size, .color_even = color_even, .color_odd = color_odd };
+  Texture tex;
+  tex.type = CHECKER_ABS;
+  tex.size = size;
+  tex.color_even = color_even;
+  tex.color_odd = color_odd;
+  return tex;
 }
+
 
 Texture checker_rel(float size, v3 color_even, v3 color_odd) {
-  return (Texture) {.type = CHECKER_REL, .size = size, .color_even = color_even, .color_odd = color_odd };
+  Texture tex;
+  tex.type = CHECKER_REL;
+  tex.size = size;
+  tex.color_even = color_even;
+  tex.color_odd = color_odd;
+  return tex;
 }
 
-int load_image(const char *img_path) {
+
+
+
+
+
+int load_image(RenderScene *scene, const char *img_path) {
   int w,h,n;
   unsigned char *pixels;
   pixels = stbi_load(img_path, &w, &h, &n, 3);
@@ -66,26 +55,27 @@ int load_image(const char *img_path) {
     return NO_IMAGE;
   }
   printf("TEXTURE: loaded %s (w=%d, h=%d, n=%d, p=%p)\n", img_path, w, h, n, pixels);
-#if FOR_GPU == 0
-  images[n_images++] = (Image) {.w = w, .h = h, .pixels = pixels};
-  return n_images-1;
-#else
-  // Transfer image texture data to the GPU
-  unsigned char *pixels_device;
-  cudaError_t err;
-  if (err = cudaMalloc((void **) &pixels_device, 3*w*h))
-    printf("TEXTURE: failed to allocate memory on device for image data -- %s\n", cudaGetErrorString(err));
-  if (err = cudaMemcpy(pixels_device, pixels, 3*w*h, cudaMemcpyHostToDevice))
-    printf("TEXTURE: failed to transfer image data from host to device -- %s\n", cudaGetErrorString(err));
-  free(pixels);
-  images[n_images++] = (Image) {.w = w, .h = h, .pixels = pixels_device};
-  return n_images-1;
-#endif
+  
+  Image img;
+  img.w = w;
+  img.h = h;
+  img.pixels = pixels;
+  arrpush(scene->images, img);
+  return arrlen(scene->images) - 1;
 }
 
-Texture image(int id) {
-  return (Texture) {.type = IMAGE, .image_id = id };
+
+Texture image_texture(int id) {
+  Texture tex;
+  tex.type = IMAGE;
+  tex.image_id = id;
+  return tex;
 }
+
+
+
+
+
 
 int clampi(int x, int low, int high) {
   if (x < low) return low;
@@ -93,10 +83,11 @@ int clampi(int x, int low, int high) {
   return x;
 }
 
-v3 image_pixel_at(Texture tex, float u, float v) {
+
+v3 image_pixel_at(RenderScene *scene, Texture tex, float u, float v) {
   if (tex.type != IMAGE)
     return BLACK;
-  Image img = images[tex.image_id];
+  Image img = scene->images[tex.image_id];
   int x = clampi(floorf(u * img.w), 0, img.w-1);
   int y = clampi(floorf(v * img.h), 0, img.h-1);
 
@@ -107,7 +98,8 @@ v3 image_pixel_at(Texture tex, float u, float v) {
   return (v3){r,g,b};
 }
 
-static inline v3 get_texture_color(Texture tex, float u, float v, v3 p) {
+
+static inline v3 get_texture_color(RenderScene *scene, Texture tex, float u, float v, v3 p) {
   if (tex.type == SOLID)
     return tex.color;
   else if (tex.type == CHECKER_ABS) {
@@ -122,7 +114,7 @@ static inline v3 get_texture_color(Texture tex, float u, float v, v3 p) {
     return (xx+yy) % 2 == 0 ? tex.color_even : tex.color_odd;
   }
   else if (tex.type == IMAGE) {
-    return image_pixel_at(tex, u, v);
+    return image_pixel_at(scene, tex, u, v);
   }
   return BLACK;
 }

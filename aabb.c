@@ -3,11 +3,7 @@
 
 #include "vector.c"
 #include "interval.c"
-
-typedef struct {
-  v3 min_coords;
-  v3 max_coords;
-} aabb;
+#include "scene.c"
 
 static inline aabb aabb_pad(aabb B) {
   float min_x = B.min_coords.x;
