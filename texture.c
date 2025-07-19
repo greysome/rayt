@@ -1,18 +1,12 @@
 #ifndef _TEXTURE_C
 #define _TEXTURE_C
 
-#if FOR_GPU == 1
 #include <cuda_runtime.h>
-#endif
-
 #include <stdlib.h>
 #include "external/stb_image.h"
-#include "vector.c"
-#include "scene.c"
-
+#include "common.h"
 
 #define NO_IMAGE -1
-
 
 Texture solid(v3 color) {
   Texture tex;
@@ -20,7 +14,6 @@ Texture solid(v3 color) {
   tex.color = color;
   return tex;
 }
-
 
 Texture checker_abs(float size, v3 color_even, v3 color_odd) {
   Texture tex;
@@ -31,7 +24,6 @@ Texture checker_abs(float size, v3 color_even, v3 color_odd) {
   return tex;
 }
 
-
 Texture checker_rel(float size, v3 color_even, v3 color_odd) {
   Texture tex;
   tex.type = CHECKER_REL;
@@ -40,11 +32,6 @@ Texture checker_rel(float size, v3 color_even, v3 color_odd) {
   tex.color_odd = color_odd;
   return tex;
 }
-
-
-
-
-
 
 int load_image(RenderScene *scene, const char *img_path) {
   int w,h,n;
@@ -64,7 +51,6 @@ int load_image(RenderScene *scene, const char *img_path) {
   return arrlen(scene->images) - 1;
 }
 
-
 Texture image_texture(int id) {
   Texture tex;
   tex.type = IMAGE;
@@ -72,19 +58,7 @@ Texture image_texture(int id) {
   return tex;
 }
 
-
-
-
-
-
-int clampi(int x, int low, int high) {
-  if (x < low) return low;
-  if (x > high) return high;
-  return x;
-}
-
-
-v3 image_pixel_at(RenderScene *scene, Texture tex, float u, float v) {
+__device__ v3 image_pixel_at(RenderScene *scene, Texture tex, float u, float v) {
   if (tex.type != IMAGE)
     return BLACK;
   Image img = scene->images[tex.image_id];
@@ -98,8 +72,7 @@ v3 image_pixel_at(RenderScene *scene, Texture tex, float u, float v) {
   return (v3){r,g,b};
 }
 
-
-static inline v3 get_texture_color(RenderScene *scene, Texture tex, float u, float v, v3 p) {
+__device__ v3 get_texture_color(RenderScene *scene, Texture tex, float u, float v, v3 p) {
   if (tex.type == SOLID)
     return tex.color;
   else if (tex.type == CHECKER_ABS) {

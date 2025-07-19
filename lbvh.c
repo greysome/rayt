@@ -2,9 +2,9 @@
 #define _LBVH_C
 
 #include <stdlib.h>
+#include "common.h"
 #include "primitive.c"
 #include "aabb.c"
-
 
 lbvh_node leaf_node(int idx_prim) {
   return (lbvh_node){.is_leaf = true, .idx_prim = idx_prim};
@@ -13,8 +13,6 @@ lbvh_node leaf_node(int idx_prim) {
 lbvh_node intermediate_node(int idx_split, int idx_left, int idx_right) {
   return (lbvh_node){.is_leaf = false, .idx_split = idx_split, .idx_left = idx_left, .idx_right = idx_right};
 }
-
-
 
 aabb get_scene_aabb(RenderScene *scene) {
   float min_x = INFINITY, min_y = INFINITY, min_z = INFINITY;
@@ -32,12 +30,10 @@ aabb get_scene_aabb(RenderScene *scene) {
 			 (v3){max_x+1, max_y+1, max_z+1}});
 }
 
-
 v3 get_relative_coords(Primitive prim, aabb scene_aabb) {
   return divi(sub(prim.pos, scene_aabb.min_coords),
 	      sub(scene_aabb.max_coords, scene_aabb.min_coords));
 }
-
 
 // Expand a 10-bit integer into 30 bits by inserting 2 zeros after each bit
 unsigned int expand_bits(unsigned int v) {
@@ -47,7 +43,6 @@ unsigned int expand_bits(unsigned int v) {
   v = (v * 0x00000005) & 0x49249249;
   return v;
 }
-
 
 // Compute a 30-bit Morton code, where pos in [0,1]^3.
 unsigned int morton_code(v3 pos) {
@@ -62,10 +57,9 @@ unsigned int morton_code(v3 pos) {
   return xx*4 + yy*2 + zz;
 }
 
-
 // TODO understand what this does
 // I ripped this off one of the links from README.md
-int get_split(RenderScene *scene, int idx_left, int idx_right) {
+__host__ __device__ int get_split(RenderScene *scene, int idx_left, int idx_right) {
   // Identical Morton codes => split the range in the middle.
   unsigned int first_code = scene->prims[idx_left].morton_code;
   unsigned int last_code = scene->prims[idx_right].morton_code;
@@ -75,11 +69,10 @@ int get_split(RenderScene *scene, int idx_left, int idx_right) {
 
   // Calculate the number of highest bits that are the same
   // for all primects, using the count-leading-zeros intrinsic.
-
-#if FOR_GPU == 0
-  int common_prefix = __builtin_clz(first_code ^ last_code);
-#else
+#ifdef CUDA_ARCH
   int common_prefix = __clz(first_code ^ last_code);
+#else
+  int common_prefix = __builtin_clz(first_code ^ last_code);
 #endif
 
   // Use binary search to find where the next bit differs.
@@ -95,10 +88,10 @@ int get_split(RenderScene *scene, int idx_left, int idx_right) {
 
       if (new_split < idx_right) {
           unsigned int split_code = scene->prims[new_split].morton_code;
-#if FOR_GPU == 0
-          int split_prefix = __builtin_clz(first_code ^ split_code);
-#else
+#ifdef CUDA_ARCH
           int split_prefix = __clz(first_code ^ split_code);
+#else
+          int split_prefix = __builtin_clz(first_code ^ split_code);
 #endif
 
           if (split_prefix > common_prefix)
@@ -110,7 +103,6 @@ int get_split(RenderScene *scene, int idx_left, int idx_right) {
   return split+1;
 }
 
-
 int compare_morton_codes(const void *prim1_, const void *prim2_) {
   Primitive *prim1 = (Primitive *) prim1_;
   Primitive *prim2 = (Primitive *) prim2_;
@@ -120,7 +112,6 @@ int compare_morton_codes(const void *prim1_, const void *prim2_) {
     return 1;
   return 0;
 }
-
 
 void set_node(RenderScene *scene, int idx, int idx_left, int idx_right) {
   static int last_used_idx = 0;
@@ -140,7 +131,6 @@ void set_node(RenderScene *scene, int idx, int idx_left, int idx_right) {
   set_node(scene, idx_right_subnode, k, idx_right);
 }
 
-
 void set_aabb(RenderScene *scene, int node_idx) {
   lbvh_node node = scene->nodes[node_idx];
   if (node.is_leaf)
@@ -154,19 +144,16 @@ void set_aabb(RenderScene *scene, int node_idx) {
   }
 }
 
-
 void build_lbvh(RenderScene *scene) {
-  // Sort primects by their morton code
+  // Sort primitives by their morton code
   aabb scene_aabb = get_scene_aabb(scene);
   int num_prims = arrlen(scene->prims);
 
-  for (int i = 0; i < num_prims; i++) {
-    scene->prims[i].morton_code =
-      morton_code(get_relative_coords(scene->prims[i], scene_aabb));
-  }
+  for (int i = 0; i < num_prims; i++)
+    scene->prims[i].morton_code = morton_code(get_relative_coords(scene->prims[i], scene_aabb));
   qsort(scene->prims, num_prims, sizeof(Primitive), compare_morton_codes);
 
-  scene->nodes = malloc((2 * num_prims - 1) * sizeof(lbvh_node));
+  scene->nodes = (lbvh_node *)malloc((2 * num_prims - 1) * sizeof(lbvh_node));
   // Add nodes recursively, starting with the root node at index 0
   set_node(scene, 0, 0, num_prims-1);
 
@@ -174,12 +161,7 @@ void build_lbvh(RenderScene *scene) {
   set_aabb(scene, 0);
 }
 
-
-
-
-
-
-void get_closest_intersection(RenderScene *scene, v3 origin, v3 dir, HitRecord *hr) {
+__device__ void get_closest_intersection(RenderScene *scene, v3 origin, v3 dir, HitRecord *hr) {
   // The values which will be written to the pointers
   float t_closest = INFINITY;
   Primitive prim_closest;
@@ -203,10 +185,10 @@ void get_closest_intersection(RenderScene *scene, v3 origin, v3 dir, HitRecord *
       float u, v;
       float t = get_intersection(prim, origin, dir, &u, &v);
       if (t > 0 && t < t_closest) {
-	t_closest = t;
-	prim_closest = prim;
-	u_closest = u;
-	v_closest = v;
+        t_closest = t;
+        prim_closest = prim;
+        u_closest = u;
+        v_closest = v;
       }
     }
     if (intersects_r && child_r.is_leaf) {
@@ -214,10 +196,10 @@ void get_closest_intersection(RenderScene *scene, v3 origin, v3 dir, HitRecord *
       float u, v;
       float t = get_intersection(prim, origin, dir, &u, &v);
       if (t > 0 && t < t_closest) {
-	t_closest = t;
-	prim_closest = prim;
-	u_closest = u;
-	v_closest = v;
+        t_closest = t;
+        prim_closest = prim;
+        u_closest = u;
+        v_closest = v;
       }
     }
 
@@ -228,7 +210,7 @@ void get_closest_intersection(RenderScene *scene, v3 origin, v3 dir, HitRecord *
     else {
       node = traverse_l ? child_l : child_r;
       if (traverse_l && traverse_r)
-	*stack_ptr++ = child_r;
+        *stack_ptr++ = child_r;
     }
   }
   while (node.idx_prim != -1);

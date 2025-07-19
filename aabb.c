@@ -1,9 +1,52 @@
 #ifndef _AABB_C
 #define _AABB_C
 
-#include "vector.c"
-#include "interval.c"
-#include "scene.c"
+#include <math.h>
+#include "common.h"
+
+#define INTERVAL_EMPTY (Interval){INFINITY,INFINITY}
+
+typedef struct {
+  float low;
+  float high;
+} Interval;
+
+__device__ bool is_empty_interval(Interval I) {
+  return I.low == INFINITY && I.high == INFINITY;
+}
+
+__device__ Interval interval_within(float start, float speed, float low, float high) {
+  if (speed == 0) {
+    if (low < start && start < high)
+      return (Interval){0, INFINITY};
+    else
+      return INTERVAL_EMPTY;
+  }
+
+  float t1 = (low-start) / speed;
+  float t2 = (high-start) / speed;
+
+  if (t1 > t2) {
+    float tmp = t1;
+    t1 = t2;
+    t2 = tmp;
+  }
+
+  if (t1 == t2)
+    return INTERVAL_EMPTY;
+
+  return (Interval){t1,t2};
+}
+
+__device__ Interval interval_intersect(Interval I1, Interval I2) {
+  if (is_empty_interval(I1) || is_empty_interval(I2))
+    return INTERVAL_EMPTY;
+  float M = fmaxf(I1.low, I2.low);
+  float m = fminf(I1.high, I2.high);
+  if (M >= m)
+    return INTERVAL_EMPTY;
+  return (Interval){M,m};
+}
 
 static inline aabb aabb_pad(aabb B) {
   float min_x = B.min_coords.x;
@@ -27,7 +70,7 @@ static inline aabb aabb_union(aabb B1, aabb B2) {
 		 (v3){max_x, max_y, max_z}};
 }
 
-static inline bool aabb_intersects(aabb aabb, v3 origin, v3 dir) {
+__device__ bool aabb_intersects(aabb aabb, v3 origin, v3 dir) {
   Interval I1 = interval_within(origin.x, dir.x, aabb.min_coords.x, aabb.max_coords.x);
   Interval I2 = interval_within(origin.y, dir.y, aabb.min_coords.y, aabb.max_coords.y);
   Interval I3 = interval_within(origin.z, dir.z, aabb.min_coords.z, aabb.max_coords.z);

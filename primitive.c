@@ -1,18 +1,15 @@
-#ifndef _HITTABLE_C
-#define _HITTABLE_C
+#ifndef _PRIMITIVE_C
+#define _PRIMITIVE_C
 
 #include <math.h>
 #include <stdio.h>
 #include <assert.h>
-#include "vector.c"
+#include "common.h"
 #include "aabb.c"
 #include "material.c"
-#include "load_obj.h"
-
 
 #define NO_SOL -INFINITY
 #define PI 3.141592653589793238462643383279502884197
-
 
 typedef struct {
   float t;
@@ -20,7 +17,6 @@ typedef struct {
   Primitive prim;
   float u, v;
 } HitRecord;
-
 
 void add_sphere(RenderScene *scene, v3 pos, float r, Material mat, Texture tex) {
   Primitive prim;
@@ -31,7 +27,6 @@ void add_sphere(RenderScene *scene, v3 pos, float r, Material mat, Texture tex) 
   prim.r = r;
   arrpush(scene->prims, prim);
 }
-
 
 void add_quad(RenderScene *scene, v3 pos, v3 u, v3 v, Material mat, Texture tex) {
   Primitive prim;
@@ -47,7 +42,6 @@ void add_quad(RenderScene *scene, v3 pos, v3 u, v3 v, Material mat, Texture tex)
   prim.D = dot(normal, pos);
   arrpush(scene->prims, prim);
 }
-
 
 void add_triangle(RenderScene *scene, v3 p1, v3 p2, v3 p3, Material mat, Texture tex) {
   v3 u = sub(p2,p1);
@@ -67,7 +61,6 @@ void add_triangle(RenderScene *scene, v3 p1, v3 p2, v3 p3, Material mat, Texture
   arrpush(scene->prims, prim);
 }
 
-
 void add_sdf(RenderScene *scene, v3 p, float size, Material mat, Texture tex) {
   // SDFs don't support non-solid textures, because how do you compute uv coordinates!?
   assert(tex.type == SOLID);
@@ -81,20 +74,14 @@ void add_sdf(RenderScene *scene, v3 p, float size, Material mat, Texture tex) {
   arrpush(scene->prims, prim);
 }
 
-
-
-
-
-v3 get_sdf_coords(Primitive prim, v3 p) {
+__device__ v3 get_sdf_coords(Primitive prim, v3 p) {
   return scl(sub(p, prim.pos), 1.0/prim.size);
 }
-
-float sdf1(v3 p);
-aabb sdf1_aabb;
-
-
-
-
+// Hard-coded example, change this later
+__device__ float sdf1(v3 p) {
+  return sqrtf(0.3*p.x*p.x + p.y*p.y + p.z*p.z) - 1;
+}
+aabb sdf1_aabb = {(v3){-2,-1,-1}, (v3){2,1,1}};
 
 aabb get_aabb(Primitive prim) {
   if (prim.type == SPHERE) {
@@ -129,8 +116,7 @@ aabb get_aabb(Primitive prim) {
 		(v3){INFINITY,INFINITY,INFINITY}};
 }
 
-
-v3 get_normal(Primitive prim, v3 p) {
+__device__ v3 get_normal(Primitive prim, v3 p) {
   if (prim.type == SPHERE)
     return normalize(sub(p, prim.pos));
 
@@ -148,8 +134,7 @@ v3 get_normal(Primitive prim, v3 p) {
   return (v3){0,0,0};
 }
 
-
-void get_uv(Primitive prim, v3 p, float *u, float *v) {
+__device__ void get_uv(Primitive prim, v3 p, float *u, float *v) {
   if (prim.type == SPHERE) {
     // Get the unit normal vector pointing from sphere center to p
     p = normalize(sub(p, prim.pos));
@@ -164,8 +149,7 @@ void get_uv(Primitive prim, v3 p, float *u, float *v) {
   }
 }
 
-
-float get_intersection(Primitive prim, v3 origin, v3 dir, float *u, float *v) {
+__device__ float get_intersection(Primitive prim, v3 origin, v3 dir, float *u, float *v) {
   if (prim.type == SPHERE) {
     // We want to solve the quadratic
     // <origin + t*dir - center, origin + t*dir - center> = radius^2
@@ -189,14 +173,14 @@ float get_intersection(Primitive prim, v3 origin, v3 dir, float *u, float *v) {
       float t1 = (-b-sqrt_discr) / (2.0*a);
       float t2 = (-b+sqrt_discr) / (2.0*a);
       if (t1 > 0) {
-	v3 p = ray_at(origin, dir, t1);
-	get_uv(prim, p, u, v);
-	return t1;
+        v3 p = ray_at(origin, dir, t1);
+        get_uv(prim, p, u, v);
+        return t1;
       }
       else if (t2 > 0) {
-	v3 p = ray_at(origin, dir, t2);
-	get_uv(prim, p, u, v);
-	return t2;
+        v3 p = ray_at(origin, dir, t2);
+        get_uv(prim, p, u, v);
+        return t2;
       }
       else return NO_SOL;
     }

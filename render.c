@@ -2,10 +2,9 @@
 #define _RENDER_C
 
 #include <math.h>
+#include <sys/time.h>
 #include <stdio.h>
-#include "external/stb_image_write.h"
-#include "vector.c"
-#include "random.c"
+#include "common.h"
 #include "texture.c"
 #include "material.c"
 #include "primitive.c"
@@ -16,41 +15,19 @@
 // RenderParams.max_bounces in get_color(), but this is not suppoted
 // by pgcc...
 #define MAX_MAX_BOUNCES 64
+// Blocking factor for render_kernel()
+#define NB 16
 
-typedef struct {
-  v3 sky_color; 
-  int w, h;
-
-  int max_bounces;
-  int samples_per_pixel;
-  v3 lookfrom;
-  v3 lookat;
-  float vfov; // 0-180 degrees
-  float defocus_angle;
-
-  // These variables are filled in by initialize_remaining_params()
-
-  float focal_len;
-  float defocus_radius;
-  v3 viewport_topleft; // Viewport's northwest
-  v3 pixel_du, pixel_dv; // Viewport coordinate vectors, pixel-wise
-  v3 cam_u, cam_v; // Camera coordinate vectors
-} RenderParams;
-
-
-
-v3 gamma_correct(v3 col) {
+__device__ v3 gamma_correct(v3 col) {
   return (v3) {sqrtf(col.x), sqrtf(col.y), sqrtf(col.z)};
 }
 
-
-
-v3 get_color(RenderParams *params, RenderScene *scene, v3 origin, v3 dir, unsigned int *X) {
+__device__ v3 shoot_ray(RenderParams *params, RenderScene *scene, v3 origin, v3 dir, unsigned int *X) {
   v3 cur_origin = origin;
   v3 cur_dir = dir;
   v3 cur_color = WHITE;
 
-  // Imitating a stack. I didn't use recursion because of the GPU's small stack.
+  // Imitating a stack. I don't use recursion because of the GPU's small stack.
   int depth = 0;
   Material materials[MAX_MAX_BOUNCES];
   v3 tex_colors[MAX_MAX_BOUNCES];
@@ -58,7 +35,7 @@ v3 get_color(RenderParams *params, RenderScene *scene, v3 origin, v3 dir, unsign
   for (; depth < params->max_bounces; depth++) {
     // Obtain closest intersection
     HitRecord hr;
-    if (arrlen(scene->prims) > 0)
+    if (scene->prims != NULL)
       get_closest_intersection(scene, cur_origin, cur_dir, &hr);
     else
       hr.t = INFINITY;
@@ -98,112 +75,138 @@ fold_stack:
   return cur_color;
 }
 
-
-
-// The pixels are located at lattice points (x+0.5, y+0.5)
-v3 get_pix_pos(RenderParams *params, int x, int y) {
-  return add(params->viewport_topleft,
-	     add(scl(params->pixel_du, x+0.5),
-		 scl(params->pixel_dv, y+0.5)));
-}
-
-
-
-v3 compute_pixel_color(RenderParams *params, RenderScene *scene, int i, int j, unsigned int *X) {
+__device__ v3 compute_pixel_color(RenderParams *params, RenderScene *scene, int i, int j, unsigned int *X) {
   v3 avg_col = {0,0,0};
   for (int k = 0; k < params->samples_per_pixel; k++) {
+    // Jitter the pixel a little for randomness
     v2 pix_offset = randsquare(X);
-    v2 defocus_offset = scl2(randdisk(X), params->defocus_radius);
-    v3 pix_pos = get_pix_pos(params,
-			     j + 0.5 + pix_offset.x,
-			     i + 0.5 + pix_offset.y);
+    // Convert 2D pixel coords to 3D scene coords
+    v3 pix_pos = add(params->viewport_topleft,
+                     add(scl(params->pixel_du, (j + 0.5 + pix_offset.x)),
+                         scl(params->pixel_dv, (i + 0.5 + pix_offset.y))));
 
+    v2 defocus_offset = scl2(randdisk(X), params->defocus_radius);
     v3 defocused_lookfrom = add(params->lookfrom,
-				add(scl(params->cam_u, defocus_offset.x),
-				    scl(params->cam_v, defocus_offset.y)));
+				                        add(scl(params->cam_u, defocus_offset.x),
+				                            scl(params->cam_v, defocus_offset.y)));
     v3 dir = sub(pix_pos, defocused_lookfrom);
 
-    avg_col = add(avg_col, get_color(params, scene, defocused_lookfrom, dir, X));
+    v3 ray_col = shoot_ray(params, scene, defocused_lookfrom, dir, X);
+    avg_col = add(avg_col, ray_col);
   }
   avg_col = gamma_correct(scl(avg_col, 1.0/params->samples_per_pixel));
   return avg_col;
 }
 
+__global__ void render_kernel(RenderParams *params, RenderScene *scene, unsigned char *pixels) {
+  int i = blockIdx.x * NB + threadIdx.x;
+  int j = blockIdx.y * NB + threadIdx.y;
+  //if (i > 0 || j > 0) return;
+  if (i >= params->h || j >= params->w) return;
 
-
-void initialize_remaining_params(RenderParams *params) {
-  params->focal_len = dist(params->lookat, params->lookfrom);
-  params->defocus_radius = 2 * params->focal_len * tanf(params->defocus_angle/360*2*PI
-							/ 2);
-
-  v3 cam_vup = {0,1,0};
-  // Camera basis vectors
-  v3 cam_w = normalize(sub(params->lookat, params->lookfrom)); // Into the viewport
-  params->cam_u = normalize(cross(cam_vup, cam_w)); // Right across the viewport
-  params->cam_v = cross(cam_w, params->cam_u); // Up the viewport
-
-  // Viewport
-  float vp_h = 2 * tanf(params->vfov/360*2*PI / 2) * params->focal_len;
-  float vp_w = vp_h * (float) params->w / params->h;
-  v3 vp_u = scl(params->cam_u, vp_w);
-  v3 vp_v = scl(params->cam_v, -vp_h);
-  params->viewport_topleft = add(params->lookfrom,
-			 add(scl(cam_w, params->focal_len),
-			     add(scl(params->cam_u, -vp_w/2),
-				 scl(params->cam_v, vp_h/2))));
-  params->pixel_du = scl(vp_u, 1.0/params->w);
-  params->pixel_dv = scl(vp_v, 1.0/params->h);
+  // Initial seed for RNG
+  unsigned int X = i * params->w + j;
+  v3 col = clampcol(compute_pixel_color(params, scene, i, j, &X));
+  int idx = 4 * (i * params->w + j);
+  pixels[idx]   = (unsigned char)(col.x * 255);
+  pixels[idx+1] = (unsigned char)(col.y * 255);
+  pixels[idx+2] = (unsigned char)(col.z * 255);
+  pixels[idx+3] = 255;
 }
 
+void copy_scene_to_device(RenderScene *d_scene, RenderScene *scene) {
+  // host_d_* means a host-side copy of a structure that contains
+  // device pointers, to be cudaMemcpy-ed to the device proper.
 
+  int images_size = arrlen(scene->images) * sizeof(Image);
+  // Host-side array of device pointers
+  Image *host_d_images = (Image*) malloc(sizeof(images_size));
+  // Device-side array of device pointers
+  Image *d_images;
+  cudaMalloc((void**) &d_images, images_size);
+  CUDA_CATCH();
 
-void render(RenderParams *params, RenderScene *scene, unsigned char *pixels) {
-  int rows_processed = 0;
-
-  // Main loop
-  for (int i = 0; i < params->h; i++) {
-    for (int j = 0; j < params->w; j++) {
-      unsigned int X = i * params->w + j;
-      v3 col = clampcol(compute_pixel_color(params, scene, i, j, &X));
-      int idx = 4 * (i*params->w + j);
-      pixels[idx] = col.x * 255;
-      pixels[idx+1] = col.y * 255;
-      pixels[idx+2] = col.z * 255;
-      pixels[idx+3] = 255;
-    }
-    rows_processed++;
-
-    if (rows_processed % 10 == 0)
-      printf("%d rows processed\n", rows_processed);
-  }
-}
-
-
-
-void run(RenderParams *params, RenderScene *scene) {
-  assert(params->max_bounces <= MAX_MAX_BOUNCES);
-  
-  initialize_remaining_params(params);
-  if (arrlen(scene->prims) > 0)
-    build_lbvh(scene);
-
-  unsigned char *pixels = malloc(params->w * params->h * 4);
-  render(params, scene, pixels);
-  stbi_write_png("output.png", params->w, params->h, 4, pixels, params->w * sizeof(unsigned int));
-  free(pixels);
-}
-
-
-
-void cleanup(RenderScene *scene) {
-  // Free images
   for (int i = 0; i < arrlen(scene->images); i++) {
-    free(scene->images[i].pixels);
+    // Copy pixel data to device
+    Image image = scene->images[i];
+    unsigned char *d_pixels;
+    cudaMalloc((void**) &d_pixels, image.w * image.h * 4);
+    CUDA_CATCH();
+    cudaMemcpy(d_pixels, image.pixels, image.w * image.h * 4, cudaMemcpyHostToDevice);
+    CUDA_CATCH();
+
+    // Append image to host-side array
+    Image host_d_image;
+    host_d_image.w = image.w;
+    host_d_image.h = image.h;
+    host_d_image.pixels = d_pixels;
+    host_d_images[i] = host_d_image;
   }
-  free(scene->images);
-  // WHY INVALID POINTER
-  //free(scene->prims);
-  free(scene->nodes);
+  // Populate device pointers in device-side array
+  cudaMemcpy(d_images, host_d_images, images_size, cudaMemcpyHostToDevice);
+  CUDA_CATCH();
+
+  int prims_size = arrlen(scene->prims) * sizeof(Primitive);
+  Primitive *d_prims;
+  cudaMalloc((void**) &d_prims, prims_size);
+  CUDA_CATCH();
+  cudaMemcpy(d_prims, scene->prims, prims_size, cudaMemcpyHostToDevice);
+  CUDA_CATCH();
+
+  int nodes_size = (2 * arrlen(scene->prims) - 1) * sizeof(lbvh_node);
+  lbvh_node *d_nodes;
+  cudaMalloc((void**) &d_nodes, nodes_size);
+  CUDA_CATCH();
+  cudaMemcpy(d_nodes, scene->nodes, nodes_size, cudaMemcpyHostToDevice);
+  CUDA_CATCH();
+
+  RenderScene host_d_scene;
+  host_d_scene.images = d_images;
+  host_d_scene.prims = d_prims;
+  host_d_scene.nodes = d_nodes;
+  cudaMemcpy(d_scene, &host_d_scene, sizeof(RenderScene), cudaMemcpyHostToDevice);
+  CUDA_CATCH();
+}
+
+void render_to_pixels(RenderParams *params, RenderScene *scene, unsigned char *pixels) {
+  RenderParams *d_params;
+  RenderScene *d_scene;
+  unsigned char *d_pixels;
+
+  cudaMalloc((void**) &d_params, sizeof(RenderParams));
+  CUDA_CATCH();
+  cudaMalloc((void**) &d_scene, sizeof(RenderScene));
+  CUDA_CATCH();
+  cudaMalloc((void**) &d_pixels, params->h * params->w * 4);
+  CUDA_CATCH();
+
+  cudaMemcpy(d_params, params, sizeof(RenderParams), cudaMemcpyHostToDevice);
+  CUDA_CATCH();
+  copy_scene_to_device(d_scene, scene);
+
+#define CEILDIV(x,y) (((x)+(y)-1)/(y))
+  dim3 grid_dim(CEILDIV(params->h, NB), CEILDIV(params->w, NB));
+  dim3 block_dim(NB, NB);
+  printf("[rayt] Lauching render kernel: grid=%dx%d block=%dx%d\n", params->h/NB, params->w/NB, NB, NB);
+
+  struct timeval tv_start, tv_end;
+  gettimeofday(&tv_start, NULL);
+  render_kernel<<<grid_dim, block_dim>>>(d_params, d_scene, d_pixels);
+  cudaDeviceSynchronize();
+  gettimeofday(&tv_end, NULL);
+  CUDA_CATCH();
+
+  int seconds = (tv_end.tv_sec - tv_start.tv_sec) * 1000000 + (tv_end.tv_usec - tv_start.tv_usec);
+  printf("[rayt] Render kernel took %.2f seconds\n", (float)seconds/1000000);
+
+  cudaMemcpy(pixels, d_pixels, params->h * params->w * 4, cudaMemcpyDeviceToHost);
+  CUDA_CATCH();
+  cudaFree(d_params);
+  CUDA_CATCH();
+  cudaFree(d_scene);
+  CUDA_CATCH();
+  cudaFree(d_pixels);
+  CUDA_CATCH();
 }
 
 #endif

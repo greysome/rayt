@@ -1,9 +1,7 @@
 #ifndef _MATERIAL_C
 #define _MATERIAL_C
 
-#include <stdbool.h>
-#include "vector.c"
-#include "random.c"
+#include "common.h"
 #include "texture.c"
 
 Material matte() {
@@ -22,15 +20,14 @@ Material light() {
   return (Material) {.type = LIGHT};
 }
 
-
-static inline float dielectric_reflectance(float cos_theta, float eta_ratio) {
+__host__ __device__ float dielectric_reflectance(float cos_theta, float eta_ratio) {
   float r0 = (1-eta_ratio) / (1+eta_ratio);
   r0 *= r0;
   return r0 + (1-r0) * powf(1-cos_theta, 5);
 }
 
 
-void interact_with_material(Material mat, v3 normal, v3 in_dir, v3 *out_dir, unsigned int *X) {
+__device__ void interact_with_material(Material mat, v3 normal, v3 in_dir, v3 *out_dir, unsigned int *X) {
   if (mat.type == MATTE) {
     // For quads/triangles the normal could face either way.
     // Thus make sure the normal is in the same hemisphere as the incoming ray.
@@ -60,8 +57,7 @@ void interact_with_material(Material mat, v3 normal, v3 in_dir, v3 *out_dir, uns
   }
 }
 
-
-static inline v3 get_reflected_color(Material mat, v3 tex_color, v3 in_color) {
+__device__ v3 get_reflected_color(Material mat, v3 tex_color, v3 in_color) {
   switch (mat.type) {
   case MATTE: return mul(tex_color, in_color);
   case METAL: return scl(mul(tex_color, in_color), mat.reflectivity);
