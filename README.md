@@ -1,8 +1,7 @@
 # rayt
 
 (Final scene from *Ray Tracing in a Weekend*, rendered in 0.1s on an NVIDIA TITAN V)
-![spheres](/readme-assets/spheres.jpg)
-
+![spheres](/readme_assets/spheres.jpg)
 
 A raytracer written in C and CUDA. My eventual goal is to efficiently
 render a set of [benchmark
@@ -11,7 +10,7 @@ a lot of work. I write from scratch as much as possible, including the
 parsers for asset files.
 
 Some features:
-- Uses GPU-specific optimisations like LBVH
+- GPU-specific optimisations like LBVH
 - Hand-written .obj and .ply parser
 
 Features I want to include:
