@@ -1,6 +1,7 @@
 #include <unistd.h>
 #include "common.h"
 #include "parsers/load_obj.h"
+#include "parsers/load_ply.h"
 
 void setup_scene_debug(RenderParams *params, RenderScene *scene) {
   params->w = 300;
@@ -151,4 +152,37 @@ void setup_scene_model(RenderParams *params, RenderScene *scene) {
   chdir("..");
 
   arrfree(faces);
+}
+
+void setup_scene_ply(RenderParams *params, RenderScene *scene) {
+  params->w = 500;
+  params->h = 500;
+  params->sky_color = (v3){.7,.9,1};
+  params->lookfrom = (v3){0,1,2};
+  params->lookat = (v3){0,0,0};
+  params->max_bounces = 10;
+  params->samples_per_pixel = 8;
+  params->vfov = 45.0;
+  params->defocus_angle = 0;
+
+  Model model;
+  chdir("assets/teapot");
+  load_ply("models/Mesh000.ply", &model);
+  chdir("../..");
+  for (int i = 0; i < arrlen(model.arr_faces); i++) {
+    _Face face = model.arr_faces[i];
+    for (int j = 1; j < face.nsides-1; j++) {
+      int idx1 = face.idxs[0];
+      int idx2 = face.idxs[j];
+      int idx3 = face.idxs[j+1];
+      Vertex vertex1 = model.arr_vertices[idx1];
+      Vertex vertex2 = model.arr_vertices[idx2];
+      Vertex vertex3 = model.arr_vertices[idx3];
+      v3 p1 = (v3){vertex1.x,vertex1.y,vertex1.z};
+      v3 p2 = (v3){vertex2.x,vertex2.y,vertex2.z};
+      v3 p3 = (v3){vertex3.x,vertex3.y,vertex3.z};
+      add_triangle(scene, p1, p2, p3, matte(), solid(WHITE));
+    }
+  }
+  free_model(&model);
 }

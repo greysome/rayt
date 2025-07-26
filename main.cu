@@ -1,5 +1,3 @@
-#include <stdlib.h>
-#include "external/stb_image_write.h"
 #include "render.c"
 #include "scenes.c"
 
@@ -24,6 +22,7 @@ void setup_scene(RenderParams *params, RenderScene *scene, int scene_id) {
   else if (scene_id == 4) setup_scene_sdf(params, scene);
   else if (scene_id == 5) setup_scene_model(params, scene);
   else if (scene_id == 6) setup_scene_materials(params, scene);
+  else if (scene_id == 7) setup_scene_ply(params, scene);
 
   //// Derive remaining params ----------------------------------------------------
 
@@ -55,22 +54,30 @@ void render_scene(RenderParams *params, RenderScene *scene) {
   unsigned char *pixels = (unsigned char*)malloc(params->w * params->h * 4);
   render_to_pixels(params, scene, pixels);
   printf("[rayt] Writing to output/out.png\n");
-  stbi_write_png("output/out.png", params->w, params->h, 4, pixels, params->w * sizeof(unsigned int));
+  stbi_write_png("_output/out.png", params->w, params->h, 4, pixels, params->w * sizeof(unsigned int));
   free(pixels);
 }
 
-void cleanup_scene(RenderScene *scene) {
+void free_scene(RenderScene *scene) {
   if (scene->images) {
     for (int i = 0; i < arrlen(scene->images); i++)
       free(scene->images[i].pixels);
-    free(scene->images);
+    arrfree(scene->images);
   }
-  // TODO: FIX THIS
-  //if (scene->prims) free(scene->prims);
+  if (scene->prims) arrfree(scene->prims);
   if (scene->nodes) free(scene->nodes);
 }
 
 int main(int argc, char **argv) {
+  int device;
+  cudaDeviceProp prop;
+  cudaGetDevice(&device);
+  CUDA_CATCH();
+  cudaGetDeviceProperties(&prop, device);
+  CUDA_CATCH();
+  printf("[rayt] Device = %s\n", prop.name);
+  
+
   RenderParams params;
   RenderScene scene;
   int scene_id;
@@ -78,7 +85,7 @@ int main(int argc, char **argv) {
   if (argc == 1) scene_id = 0;
   else if (argc > 1) scene_id = atoi(argv[1]);
 
-  if (scene_id < 0 || scene_id > 6) scene_id = 0;
+  if (scene_id < 0 || scene_id > 7) scene_id = 0;
 
   printf("[rayt] Scene ID = %d ", scene_id);
   if (scene_id == 0) printf("(materials)\n");
@@ -88,6 +95,7 @@ int main(int argc, char **argv) {
   else if (scene_id == 4) printf("(sdf)\n");
   else if (scene_id == 5) printf("(models)\n");
   else if (scene_id == 6) printf("(materials)\n");
+  else if (scene_id == 7) printf("(ply)\n");
 
   setup_scene(&params, &scene, scene_id);
 
@@ -108,6 +116,6 @@ int main(int argc, char **argv) {
   printf("[rayt] Render params: cam_v = (%.2f,%.2f,%.2f)\n", params.cam_v.x, params.cam_v.y, params.cam_v.z);
 
   render_scene(&params, &scene);
-  cleanup_scene(&scene);
-  return 0;
+  free_scene(&scene);
+  return EXIT_SUCCESS;
 }

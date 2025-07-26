@@ -1,9 +1,9 @@
 # VARIABLES -----------------------------------------------------
 
-BUILDDIR = build
-OBJS = $(BUILDDIR)/stb_ds.o $(BUILDDIR)/stb_image.o $(BUILDDIR)/stb_image_write.o $(BUILDDIR)/load_obj.o
+BUILDDIR = _build
+OBJS = $(BUILDDIR)/stb_ds.o $(BUILDDIR)/stb_image.o $(BUILDDIR)/stb_image_write.o $(BUILDDIR)/load_obj.o $(BUILDDIR)/load_ply.o $(BUILDDIR)/parser_common.o
 SRCS := $(wildcard *.c)
-GCCFLAGS =
+GCCFLAGS = -O3
 NVCCFLAGS =
 # TODO DOESN'T WORK
 ifdef DEBUG
@@ -24,14 +24,19 @@ $(BUILDDIR)/stb_%.o: external/stb_%.h
 	@echo "----- Building stb_$*.o -----"
 	cd external; \
 	cp stb_$*.h stb_$*.c; \
-	gcc -O3 -c stb_$*.c -DSTB_$(UC)_IMPLEMENTATION; \
+	gcc $(GCCFLAGS) -c stb_$*.c -DSTB_$(UC)_IMPLEMENTATION; \
 	mv stb_$*.o ../$(BUILDDIR); \
 	rm stb_$*.c;
 	@echo -e "\n"
 
-$(BUILDDIR)/load_obj.o: parsers/load_obj.c parsers/load_obj.h
-	@echo "----- Building load_obj.o -----"
-	gcc $(GCCFLAGS) -c parsers/load_obj.c -o $@
+$(BUILDDIR)/parser_common.o: parsers/parser_common.c parsers/parser_common.h
+	@echo "----- Building parser_common.o -----"
+	gcc $(GCCFLAGS) -c parsers/parser_common.c -o $@
+	@echo -e "\n"
+
+$(BUILDDIR)/load_%.o: parsers/load_%.c parsers/load_%.h
+	@echo "----- Building load_$*.o -----"
+	gcc $(GCCFLAGS) -c parsers/load_$*.c -o $@
 	@echo -e "\n"
 
 # USER-SPECIFIED TARGETS ----------------------------------------

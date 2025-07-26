@@ -2,7 +2,7 @@ venv/
 __pycache__/
 
 **/*.swp
-output/**
-build/**
+_output/**
+_build/**
 rayt
 job.sh

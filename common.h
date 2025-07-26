@@ -9,10 +9,11 @@
 #ifndef _COMMON_H
 #define _COMMON_H
 
-//// GENERAL UTILITY FUNCTIONS ---------------------------------------
+#include <stdlib.h>
+#include "external/stb_ds.h"           // Dynamic arrays
+#include "external/stb_image_write.h"  // PNG writing
 
-// Dynamic arrays
-#include "external/stb_ds.h"
+//// GENERAL UTILITY FUNCTIONS ---------------------------------------
 
 __host__ __device__ int clampi(int x, int low, int high) {
   if (x < low) return low;
@@ -21,11 +22,17 @@ __host__ __device__ int clampi(int x, int low, int high) {
 }
 
 cudaError_t _cudaerr;
-#define CUDA_CATCH() if(_cudaerr=cudaGetLastError()){printf("[rayt] ERROR at %s:%d: CUDA: %s: %s\n",__FILE__,__LINE__,cudaGetErrorName(_cudaerr),cudaGetErrorString(_cudaerr));exit(1);}
+
+void CUDA_CATCH() {
+  if (_cudaerr = cudaGetLastError()) {
+    printf("[rayt] ERROR at %s:%d: CUDA: %s: %s\n", __FILE__, __LINE__, cudaGetErrorName(_cudaerr), cudaGetErrorString(_cudaerr));
+    exit(EXIT_FAILURE);
+  }
+}
 
 //// VECTORS ---------------------------------------------------------
-// For brevity, functions on v3s are given short names (e.g. add, scl).
-// A suffix is added when operating on other types (e.g. scl2, clampcol).
+//// For brevity, functions on v3s are given short names (e.g. add, scl).
+//// A suffix is added when operating on other types (e.g. scl2, clampcol).
 
 typedef struct {
   float x;
